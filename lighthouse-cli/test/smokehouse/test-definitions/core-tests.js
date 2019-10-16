@@ -10,72 +10,62 @@ const smokeTests = [{
   id: 'a11y',
   expectations: require('./a11y/expectations.js'),
   config: require('./a11y/a11y-config.js'),
-  runParallel: true,
 }, {
   id: 'errors',
   expectations: require('./errors/error-expectations.js'),
   config: require('./errors/error-config.js'),
-  runParallel: false,
+  runSerially: true,
 }, {
   id: 'oopif',
   expectations: require('./oopif/oopif-expectations.js'),
   config: require('./oopif/oopif-config.js'),
-  runParallel: true,
 }, {
   id: 'pwa',
   expectations: require('./pwa/pwa-expectations.js'),
   config: require('./pwa/pwa-config.js'),
-  runParallel: true,
 }, {
   id: 'pwa2',
   expectations: require('./pwa/pwa2-expectations.js'),
   config: require('./pwa/pwa-config.js'),
-  runParallel: true,
 }, {
   id: 'pwa3',
   expectations: require('./pwa/pwa3-expectations.js'),
   config: require('./pwa/pwa-config.js'),
-  runParallel: true,
 }, {
   id: 'dbw',
   expectations: require('./dobetterweb/dbw-expectations.js'),
   config: require('./dobetterweb/dbw-config.js'),
-  runParallel: true,
 }, {
   id: 'redirects',
   expectations: require('./redirects/expectations.js'),
   config: require('./redirects/redirects-config.js'),
-  runParallel: true,
 }, {
   id: 'seo',
   expectations: require('./seo/expectations.js'),
   config: require('./seo/seo-config.js'),
-  runParallel: true,
 }, {
   id: 'offline',
   expectations: require('./offline-local/offline-expectations.js'),
   config: require('./offline-local/offline-config.js'),
-  runParallel: false,
+  runSerially: true,
 }, {
   id: 'byte',
   expectations: require('./byte-efficiency/expectations.js'),
   config: require('./byte-efficiency/byte-config.js'),
-  runParallel: false,
+  runSerially: true,
 }, {
   id: 'perf',
   expectations: require('./perf/expectations.js'),
   config: require('./perf/perf-config.js'),
-  runParallel: false,
+  runSerially: true,
 }, {
   id: 'lantern',
   expectations: require('./lantern/lantern-expectations.js'),
   config: require('./lantern/lantern-config.js'),
-  runParallel: true,
 }, {
   id: 'metrics',
   expectations: require('./tricky-metrics/expectations.js'),
   config: require('../../../../lighthouse-core/config/perf-config.js'),
-  runParallel: true,
 }];
 
 module.exports = smokeTests;

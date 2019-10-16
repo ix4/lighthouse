@@ -1,57 +1,102 @@
 # Smokehouse
 
-Smokehouse is the Lighthouse end-to-end/smoke test runner. It takes in a set of URLs (usually of custom-built test sites) and runs Lighthouse on them, then compares the results against an expectations file.
+Smokehouse is the Lighthouse end-to-end/smoke test runner. It takes in a set of URLs (usually pointing to custom-built test sites), runs Lighthouse on them, and compares the results against a set of expectations.
 
-By default this is done using the Lighthouse CLI (to exercise the full pipeline) with the tests listed in `smokehouse/test-definitions/core-tests.js`.
+By default this is done using the Lighthouse CLI (to exercise the full pipeline) with the tests listed in [`smokehouse/test-definitions/core-tests.js`](./test-definitions/core-tests.js).
 
 ## Options
 
 See [`SmokehouseOptions`](https://github.com/GoogleChrome/lighthouse/blob/master/lighthouse-cli/test/smokehouse/smokehouse.js#L23).
 
+## Test definitions
+
+| Name | Type | Description |
+| -- | -- | -- |
+| `id` | `string` | The string identifier of the test. |
+| `expectations` | `{lhr: Object, artifacts: Object}` | See below. |
+| `config` | `LH.Config.Json` (optional) | An optional Lighthouse config. If not specified, the default config is used.|
+| `runSerially` | `boolean` (optional) | An optional flag. If set to true, the test won't be run in parallel to other tests. Useful if the test is performance sensitive. |
+
+### Expectations
+
+The smoke test expectations can assert the values of the Lighthouse result (the `lhr`) and gathered `artifacts` for multiple URLs. The URL to be tested is specified in the expectations's `requestedUrl` field.
+
+The expectations are asserted as a subset of the actual results: all values in the expectectations must be in the actual results, but not all actual results must be asserted.
+
+Examples can be found in the [core tests](./test-definitions/).
+
+### Special numeric expectations
+
+If checking a number somewhere in the Lighthouse results, numeric comparisons can be used in place of a raw expected number. This allows asserting ranges or categories of numbers where the exact value isn't necessarily important, or to allow for expected variability in a test.
+
+The comparator is specified with a string, and the actual value being tested must be a number. Whitespace may be included in the string for readability.
+
+The following operators are supported:
+
+| Operator | Example|
+| -- | -- |
+| `>` | `'>0'` |
+| `>=` | `'>=5'` |
+| `<` | `'<1'` |
+| `<=` | `'<=10'` |
+| `+/-` | `'100+/-10'` |
+| `±` | `'100±10'` |
+
+### Special string expectations
+
+If checking a string somewhere in the Lighthouse results, a regular expression can be used in place of a string literal.
+
 ## Pipeline
 
-Frontends                                                   Runners
+The different frontends launch smokehouse with a set of tests to run. Smokehouse then coordinates the tests using a particular method of running Lighthouse (CLI, as a bundle, etc).
+
+```
+Frontends                                        Lighthouse Runners
 +------------+
 |            |
 |  bin (CLI) +----+                                +--------------+
 |            |    |                                |              |
-+------------+    |                            +-->+lighthouse-cli|
++------------+    |                            +-->+lighthouse+cli|
                   |                            |   |              |
 +------------+    |      +---------------+     |   +--------------+
 |            |    |      |               |     |
-|   node     +----+----->+ smokehouse.js +-----+
+|   node     +---------->+ smokehouse.js +-----+
 |            |    |      |               |     |   +--------------+
-+------------+    |      +---------------+     |   |              |
-                  |                            +-->+  bundled-LH  |
-+------------+    |                                |              |
-|            |    |                                +--------------+
-|bundle-entry+----+
-|            |
-+------------+
++------------+    |      +-------+-------+     |   |              |
+                  |              ^             +-->+  bundled+LH  |
++------------+    |              |                 |              |
+|            |    |              |                 +--------------+
+|bundle+entry+----+              v
+|            |          +--------+--------+
++------------+          |                 |
+                        |  report/assert  |
+                        |                 |
+                        +-----------------+
+```
 
-### Frontend
-- `smokehouse-bin.js` - runs smokehouse from the command line
+### Frontends
+- `frontends/smokehouse-bin.js` - runs smokehouse from the command line
+- TODO: bundle-entry - simple entrypoint to smokehouse for bundling and running in a browser.
 - `smokehouse.js` - smokehouse itself is runnable from node
-- TODO: bundle-entry - simple entrypoint to smokehouse that serves as a bundle entry point to run it in a browser.
 
 ### Smokehouse
-- `smokehouse.js` - takes a set of smoke-test definitions and runs them via a passed-in runner. If its inputs are bundleable then smokehouse is as well.
+- `smokehouse.js` - takes a set of smoke-test definitions and runs them via a passed-in runner. Smokehouse is bundleable and can run in a browser as long as runner used is bundleable as well.
 
-### Runner
-- `run-lighthouse-cli.js` - the original smoke test runner, exercising the CLI from command-line argument parsing to the artifacts and results written to disk on completion.
+### Lighthouse runners
+- `runners/cli.js` - the original test runner, exercising the Lighthouse CLI from command-line argument parsing to the results written to disk on completion.
 - TODO: bundle runner - a smoke test runner that operates on an already-bundled version of Lighthouse for end-to-end testing of that version.
 
 ## Custom smoke tests (for plugins et al.)
-Smokehouse comes with a core set of test definitions, but it can run  any set of tests. Custom extensions of Lighthouse (like plugins) can provide their own tests and run via the same infrastructure. For example:
+Smokehouse comes with a core set of test definitions, but it can run  any set of tests. Custom extensions of Lighthouse (like plugins) can provide their own tests and run them via the same infrastructure. For example:
 
 - have a test site on a public URL or via a local server (e.g. `https://localhost:8080`)
 - create a test definition (e.g. in `plugin-tests.js`)
    ```js
    const smokeTests = [{
      id: 'pluginTest',
-     // config: ..., If left out, uses default LH config
-     runParallel: true, // If test isn't perf-sensitive
      expectations: require('./expectations.js'),
+     // config: ..., // If left out, uses default LH config
+     // runSerially: true, // If test is perf-sensitive
    };
    module.exports = smokeTests;
    ```
@@ -73,4 +118,4 @@ Smokehouse comes with a core set of test definitions, but it can run  any set of
    ```
 - run smokehouse
 
-   `node lighthouse-cli/test/smokehouse/smokehouse-bin.js --tests-path plugin-tests.js`
+   `yarn smoke --tests-path plugin-tests.js`

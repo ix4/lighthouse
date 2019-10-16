@@ -273,7 +273,6 @@ function assertLogString(count) {
 /**
  * Log all the comparisons between actual and expected test results, then print
  * summary. Returns count of passed and failed tests.
- * If `actual` is undefined, all assertions will fail.
  * @param {{lhr: LH.Result, artifacts: LH.Artifacts}} actual
  * @param {Smokehouse.ExpectedRunnerResult} expected
  * @param {{isDebug?: boolean}=} reportOptions

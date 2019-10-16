@@ -8,14 +8,14 @@
 const fs = require('fs').promises;
 const path = require('path');
 const {promisify} = require('util');
-const execAsync = promisify(require('child_process').exec);
+const execFileAsync = promisify(require('child_process').execFile);
 
 const log = require('lighthouse-logger');
 const rimraf = promisify(require('rimraf'));
 const makeDir = require('make-dir');
 
-const assetSaver = require('../../../lighthouse-core/lib/asset-saver.js');
-const LocalConsole = require('./local-console.js');
+const assetSaver = require('../../../../lighthouse-core/lib/asset-saver.js');
+const LocalConsole = require('../local-console.js');
 const ChildProcessError = require('./child-process-error.js');
 
 /**
@@ -51,9 +51,8 @@ async function internalRun(url, tmpPath, configJson, isDebug) {
   const artifactsDirectory = `${tmpPath}/artifacts/`;
 
   const args = [
-    'node',
     'lighthouse-cli/index.js',
-    `"${url}"`, // quoted for weird urls
+    `${url}`,
     `--output-path=${outputPath}`,
     '--output=json',
     `-G=${artifactsDirectory}`,
@@ -75,13 +74,13 @@ async function internalRun(url, tmpPath, configJson, isDebug) {
     args.push('--throttling.cpuSlowdownMultiplier=1');
   }
 
-  const command = args.join(' ');
-  localConsole.log(`${log.dim}$ ${command} ${log.reset}`);
+  const command = 'node';
+  localConsole.log(`${log.dim}$ ${command} ${args.join(' ')} ${log.reset}`);
 
   /** @type {{stdout: string, stderr: string, code?: number}} */
   let execResult;
   try {
-    execResult = await execAsync(command, {encoding: 'utf8'});
+    execResult = await execFileAsync(command, args);
   } catch (e) {
     // exec-thrown errors have stdout, stderr, and exit code from child process.
     execResult = e;

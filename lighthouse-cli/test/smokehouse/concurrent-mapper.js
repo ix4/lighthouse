@@ -13,8 +13,49 @@
  */
 class ConcurrentMapper {
   constructor() {
-    /** @type {Set<Promise<any>>} */
+    /** @type {Set<Promise<unknown>>} */
     this._promisePool = new Set();
+
+    /**
+     * The limits of all currently running jobs. There will be duplicates.
+     * @type {Array<number>}
+     */
+    this._allConcurrencyLimits = [];
+  }
+
+  /**
+   * Returns whether there are fewer running jobs than the minimum current
+   * concurrency limit and the proposed new `concurrencyLimit`.
+   * @param {number} concurrencyLimit
+   */
+  _canRunMoreAtLimit(concurrencyLimit) {
+    return this._promisePool.size < concurrencyLimit &&
+        this._promisePool.size < Math.min(...this._allConcurrencyLimits);
+  }
+
+  /**
+   * Add a job to pool.
+   * @param {Promise<unknown>} job
+   * @param {number} concurrencyLimit
+   */
+  _addJob(job, concurrencyLimit) {
+    this._promisePool.add(job);
+    this._allConcurrencyLimits.push(concurrencyLimit);
+  }
+
+  /**
+   * Remove a job from pool.
+   * @param {Promise<unknown>} job
+   * @param {number} concurrencyLimit
+   */
+  _removeJob(job, concurrencyLimit) {
+    this._promisePool.delete(job);
+
+    const limitIndex = this._allConcurrencyLimits.indexOf(concurrencyLimit);
+    if (limitIndex === -1) {
+      throw new Error('No current limit found for finishing job');
+    }
+    this._allConcurrencyLimits.splice(limitIndex, 1);
   }
 
   /**
@@ -28,12 +69,12 @@ class ConcurrentMapper {
    * @param {number} concurrencyLimit
    * @return {Promise<Array<U>>}
    */
-  async concurrentMap(values, callbackfn, concurrencyLimit) {
+  async map(values, callbackfn, concurrencyLimit) {
     const result = [];
 
     for (let i = 0; i < values.length; i++) {
       // Wait until concurrencyLimit allows another run.
-      while (this._promisePool.size >= concurrencyLimit) {
+      while (!this._canRunMoreAtLimit(concurrencyLimit)) {
         // Unconditionally catch since we only care about our own failures
         // (caught in the Promise.all below), not other callers.
         await Promise.race(this._promisePool).catch(() => {});
@@ -41,9 +82,9 @@ class ConcurrentMapper {
 
       // innerPromise removes itself from the pool and resolves on return from callback.
       const innerPromise = callbackfn(values[i], i, values)
-        .finally(() => this._promisePool.delete(innerPromise));
+        .finally(() => this._removeJob(innerPromise, concurrencyLimit));
 
-      this._promisePool.add(innerPromise);
+      this._addJob(innerPromise, concurrencyLimit);
       result.push(innerPromise);
     }
 

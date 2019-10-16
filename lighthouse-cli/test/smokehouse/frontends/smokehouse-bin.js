@@ -5,27 +5,27 @@
  */
 'use strict';
 
-const path = require('path');
-const yargs = require('yargs');
-const log = require('lighthouse-logger');
-
-const {runSmokehouse} = require('./smokehouse.js');
-const {server, serverForOffline} = require('../fixtures/static-server.js');
-
-const cliLighthouseRunner = require('./run-lighthouse-cli.js').runLighthouse;
-
-const coreTestDefnsPath = require.resolve('./test-definitions/core-tests.js');
-
-const runners = {
-  cli: cliLighthouseRunner,
-};
-
-/* eslint-disable no-console */
-
 /**
  * @fileoverview Run smokehouse from the command line. Run webservers,
  * smokehouse, then report on failures.
  */
+
+/* eslint-disable no-console */
+
+const path = require('path');
+const yargs = require('yargs');
+const log = require('lighthouse-logger');
+
+const {runSmokehouse} = require('../smokehouse.js');
+const {server, serverForOffline} = require('../../fixtures/static-server.js');
+
+const cliLighthouseRunner = require('../lighthouse-runners/cli.js').runLighthouse;
+
+const coreTestDefnsPath = require.resolve('../test-definitions/core-tests.js');
+
+const runners = {
+  cli: cliLighthouseRunner,
+};
 
 /**
  * Determine batches of smoketests to run, based on the `requestedIds`.

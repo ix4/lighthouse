@@ -25,7 +25,8 @@
     id: string;
     expectations: ExpectedRunnerResult[];
     config?: LH.Config.Json;
-    runParallel: boolean;
+    /** If test is performance sensitive, set to true so that it won't be run parallel to other tests. */
+    runSerially?: boolean;
   }
 
   export interface FirehouseOptions {

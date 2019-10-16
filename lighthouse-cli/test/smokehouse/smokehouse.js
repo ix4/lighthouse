@@ -6,16 +6,16 @@
 'use strict';
 
 const log = require('lighthouse-logger');
-const cliLighthouseRunner = require('./run-lighthouse-cli.js').runLighthouse;
+const cliLighthouseRunner = require('./lighthouse-runners/cli.js').runLighthouse;
 const getAssertionReport = require('./report-assert.js');
 const LocalConsole = require('./local-console.js');
 const ConcurrentMapper = require('./concurrent-mapper.js');
 
 /* eslint-disable no-console */
 
-/** @typedef {import('./child-process-error.js')} ChildProcessError */
+/** @typedef {import('./lighthouse-runners/child-process-error.js')} ChildProcessError */
 
-// The number of concurrent (`runParallel`) tests to run if `jobs` isn't set.
+// The number of concurrent (`!runSerially`) tests to run if `jobs` isn't set.
 const DEFAULT_CONCURRENT_RUNS = 5;
 const DEFAULT_RETRIES = 1;
 
@@ -55,8 +55,8 @@ async function runSmokehouse(smokeTestDefns, smokehouseOptions = {}) {
   const concurrentMapper = new ConcurrentMapper();
   const smokePromises = [];
   for (const testDefn of smokeTestDefns) {
-    // If defn is set to not `runParallel`, we'll run its tests in succession, not parallel.
-    const concurrencyLimit = testDefn.runParallel ? jobs : 1;
+    // If defn is set to `runSerially`, we'll run its tests in succession, not parallel.
+    const concurrencyLimit = testDefn.runSerially ? 1 : jobs;
     const options = {concurrencyLimit, lighthouseRunner, retries, isDebug};
     const result = runSmokeTestDefn(concurrentMapper, testDefn, options);
     smokePromises.push(result);
@@ -64,7 +64,7 @@ async function runSmokehouse(smokeTestDefns, smokehouseOptions = {}) {
   const smokeResults = await Promise.all(smokePromises);
 
   // Print and fail if there were failing tests.
-  const failingDefns = smokeResults.filter(result => result.failingTestCount > 0);
+  const failingDefns = smokeResults.filter(result => !result.success);
   if (failingDefns.length) {
     const testNames = failingDefns.map(d => d.id).join(', ');
     console.error(log.redify(`We have ${failingDefns.length} failing smoketests: ${testNames}`));
@@ -90,7 +90,7 @@ function assertPositiveInteger(loggableName, value) {
  * @param {ConcurrentMapper} concurrentMapper
  * @param {Smokehouse.TestDfn} smokeTestDefn
  * @param {{concurrencyLimit: number, retries: number, lighthouseRunner: LighthouseRunner, isDebug?: boolean}} defnOptions
- * @return {Promise<{id: string, passingTestCount: number, failingTestCount: number}>}
+ * @return {Promise<{id: string, success: boolean}>}
  */
 async function runSmokeTestDefn(concurrentMapper, smokeTestDefn, defnOptions) {
   const {id, config: configJson, expectations} = smokeTestDefn;
@@ -107,7 +107,7 @@ async function runSmokeTestDefn(concurrentMapper, smokeTestDefn, defnOptions) {
 
   // Loop sequentially over expectations, comparing against Lighthouse run, and
   // reporting result.
-  const results = await concurrentMapper.concurrentMap(individualTests, (test, index) => {
+  const results = await concurrentMapper.map(individualTests, (test, index) => {
     if (index === 0) console.log(`${purpleify(id)} smoketest starting…`);
     return runSmokeTest(test);
   }, concurrencyLimit);
@@ -137,8 +137,7 @@ async function runSmokeTestDefn(concurrentMapper, smokeTestDefn, defnOptions) {
 
   return {
     id,
-    passingTestCount,
-    failingTestCount,
+    success: failingTestCount === 0,
   };
 }
 
@@ -160,11 +159,11 @@ async function runSmokeTest(testOptions) {
   // Rerun test until there's a passing result or retries are exhausted to prevent flakes.
   let result;
   let report;
-  for (let i = 0; i < retries; i++) {
+  for (let i = 0; i <= retries; i++) {
     if (i === 0) {
       localConsole.log(`Doing a run of '${requestedUrl}'...`);
     } else {
-      localConsole.log(`Retrying run (${i + 1} out of ${retries})...`);
+      localConsole.log(`Retrying run (${i} out of ${retries} retries)...`);
     }
 
     // Run Lighthouse.
