@@ -6,29 +6,26 @@
 'use strict';
 
 const fs = require('fs').promises;
-const path = require('path');
+const os = require('os');
 const {promisify} = require('util');
 const execFileAsync = promisify(require('child_process').execFile);
 
 const log = require('lighthouse-logger');
 const rimraf = promisify(require('rimraf'));
-const makeDir = require('make-dir');
 
 const assetSaver = require('../../../../lighthouse-core/lib/asset-saver.js');
 const LocalConsole = require('../local-console.js');
 const ChildProcessError = require('./child-process-error.js');
 
 /**
- * Launch Chrome and do a full Lighthouse run via the CLI.
+ * Launch Chrome and do a full Lighthouse run via the Lighthouse CLI.
  * @param {string} url
  * @param {LH.Config.Json=} configJson
  * @param {{isDebug?: boolean}=} testRunnerOptions
  * @return {Promise<{lhr: LH.Result, artifacts: LH.Artifacts, log: string}>}
  */
 async function runLighthouse(url, configJson, testRunnerOptions = {}) {
-  const randInt = Math.round(Math.random() * 100000);
-  const tmpAbsolutePath = await makeDir(`./.tmp/smokehouse-${randInt}/`);
-  const tmpPath = path.relative(process.cwd(), tmpAbsolutePath);
+  const tmpPath = await fs.mkdtemp(`${os.tmpdir()}/smokehouse-`);
 
   const {isDebug} = testRunnerOptions;
   return internalRun(url, tmpPath, configJson, isDebug)
