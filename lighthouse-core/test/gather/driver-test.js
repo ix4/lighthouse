@@ -871,24 +871,80 @@ describe('.goOnline', () => {
   });
 });
 
+describe('Domain.enable/disable State', () => {
+  it('dedupes (simple)', async () => {
+    connectionStub.sendCommand = createMockSendCommandFn()
+      .mockResponse('Network.enable')
+      .mockResponse('Network.disable')
+      .mockResponse('Fetch.enable')
+      .mockResponse('Fetch.disable');
+
+    await driver.sendCommand('Network.enable', {});
+    await driver.sendCommand('Network.enable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(1);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(1);
+    // Network still has one enable.
+
+    await driver.sendCommand('Fetch.enable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(3);
+    // Network is now disabled.
+
+    await driver.sendCommand('Fetch.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(4);
+  });
+
+  it('dedupes (sessions)', async () => {
+    connectionStub.sendCommand = createMockSendCommandFn()
+      .mockResponse('Network.enable')
+      .mockResponseToSession('Network.enable', '123')
+      .mockResponse('Network.disable')
+      .mockResponseToSession('Network.disable', '123');
+
+    await driver.sendCommand('Network.enable', {});
+    await driver.sendCommandToSession('Network.enable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommand('Network.enable', {});
+    await driver.sendCommandToSession('Network.enable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommandToSession('Network.disable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(2);
+
+    await driver.sendCommandToSession('Network.disable', '123', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(3);
+
+    await driver.sendCommand('Network.disable', {});
+    expect(connectionStub.sendCommand).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe('Multi-target management', () => {
   it('enables the Network domain for iframes', async () => {
     connectionStub.sendCommand = createMockSendCommandFn()
-      .mockResponseToSession('Network.enable', 123, {})
-      .mockResponseToSession('Target.setAutoAttach', 123, {})
-      .mockResponseToSession('Runtime.runIfWaitingForDebugger', 123, {});
+      .mockResponseToSession('Network.enable', '123', {})
+      .mockResponseToSession('Target.setAutoAttach', '123', {})
+      .mockResponseToSession('Runtime.runIfWaitingForDebugger', '123', {});
 
     driver._eventEmitter.emit('Target.attachedToTarget', {
-      sessionId: 123,
+      sessionId: '123',
       targetInfo: {type: 'iframe'},
     });
     await flushAllTimersAndMicrotasks();
 
-    expect(connectionStub.sendCommand).toHaveBeenNthCalledWith(1, 'Network.enable', 123);
+    expect(connectionStub.sendCommand).toHaveBeenNthCalledWith(1, 'Network.enable', '123');
     expect(connectionStub.sendCommand)
-      .toHaveBeenNthCalledWith(2, 'Target.setAutoAttach', 123, expect.anything());
+      .toHaveBeenNthCalledWith(2, 'Target.setAutoAttach', '123', expect.anything());
     expect(connectionStub.sendCommand)
-      .toHaveBeenNthCalledWith(3, 'Runtime.runIfWaitingForDebugger', 123);
+      .toHaveBeenNthCalledWith(3, 'Runtime.runIfWaitingForDebugger', '123');
   });
 
   it('ignores other target types, but still resumes them', async () => {
