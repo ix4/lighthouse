@@ -29,8 +29,8 @@ const runners = {
 
 /**
  * Determine batches of smoketests to run, based on the `requestedIds`.
- * @param {Array<string>} requestedIds
  * @param {Array<Smokehouse.TestDfn>} allTestDefns
+ * @param {Array<string>} requestedIds
  * @return {Array<Smokehouse.TestDfn>}
  */
 function getDefinitionsToRun(allTestDefns, requestedIds) {
@@ -64,7 +64,7 @@ async function cli() {
   const argv = yargs
     .help('help')
     .usage('node $0 [<options>] <test-ids>')
-    .example('node $0 --run-in-band pwa seo', 'run pwa and seo tests serially')
+    .example('node $0 -j=1 pwa seo', 'run pwa and seo tests serially')
     .describe({
       'debug': 'Save test artifacts and output verbose logs',
       'jobs': 'Manually set the number of jobs to run at once. `1` runs all tests serially',
@@ -106,7 +106,7 @@ async function cli() {
     await new Promise(resolve => serverForOffline.close(resolve));
   }
 
-  const exitCode = Number(!isPassing);
+  const exitCode = isPassing ? 0 : 1;
   process.exit(exitCode);
 }
 

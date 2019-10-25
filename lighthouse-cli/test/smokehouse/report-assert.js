@@ -307,7 +307,7 @@ function report(actual, expected, reportOptions = {}) {
     const failedColorFn = failedCount === 0 ? log.greenify : log.redify;
     localConsole.log(`  Failed ${failedColorFn(failedString)}`);
   }
-  localConsole.log(''); // extra line break
+  localConsole.write('\n');
 
   return {
     passed: correctCount,

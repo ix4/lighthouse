@@ -45,6 +45,7 @@ async function runSmokes(options) {
       const counts = report(results, expected);
       passingCount += counts.passed;
       failingCount += counts.failed;
+      // Log buffered report logging.
       console.log(counts.log);
     }
   }

@@ -46,32 +46,38 @@ The following operators are supported:
 
 If checking a string somewhere in the Lighthouse results, a regular expression can be used in place of a string literal.
 
+### Special array expectations
+
+Individual elements of an array can be asserted by using numeric properties in an object, e.g. asserting the third element in an array is 5: `{2: 5}`.
+
+However, if an array literal is used as the expectation, an extra condition is enforced that the actual array *must* have the same length as the provided expected array.
+
 ## Pipeline
 
 The different frontends launch smokehouse with a set of tests to run. Smokehouse then coordinates the tests using a particular method of running Lighthouse (CLI, as a bundle, etc).
 
 ```
-Frontends                                        Lighthouse Runners
+Frontends                                                    Lighthouse Runners
 +------------+
 |            |
-|  bin (CLI) +----+                                +--------------+
-|            |    |                                |              |
-+------------+    |                            +-->+lighthouse+cli|
-                  |                            |   |              |
-+------------+    |      +---------------+     |   +--------------+
-|            |    |      |               |     |
-|   node     +---------->+ smokehouse.js +-----+
-|            |    |      |               |     |   +--------------+
-+------------+    |      +-------+-------+     |   |              |
-                  |              ^             +-->+  bundled+LH  |
-+------------+    |              |                 |              |
-|            |    |              |                 +--------------+
-|bundle+entry+----+              v
-|            |          +--------+--------+
-+------------+          |                 |
-                        |  report/assert  |
-                        |                 |
-                        +-----------------+
+|  bin (CLI) +----+                                            +--------------+
+|            |    |                                            |              |
++------------+    |                                        +-->+     cli      |
+                  |                                        |   |              |
++------------+    |             +---------------+          |   +--------------+
+|            |    | testDefns > |               | config > |
+|   node     +----------------->+ smokehouse.js +<---------+
+|            |    |             |               |  < lhr   |   +--------------+
++------------+    |             +-------+-------+          |   |              |
+                  |                     ^                  +-->+   bundled    |
++------------+    |                     |                      |              |
+|            |    |                     |                      +--------------+
+|bundle+entry+----+                     v
+|            |                 +--------+--------+
++------------+                 |                 |
+                               |  report/assert  |
+                               |                 |
+                               +-----------------+
 ```
 
 ### Frontends

@@ -20,7 +20,7 @@ const DEFAULT_CONCURRENT_RUNS = 5;
 const DEFAULT_RETRIES = 1;
 
 /**
- * @typedef {object} SmokehouseOptions
+ * @typedef SmokehouseOptions
  * @property {boolean=} isDebug If true, performs extra logging from the test runs.
  * @property {number=} jobs Manually set the number of jobs to run at once. `1` runs all tests serially.
  * @property {number=} retries The number of times to retry failing tests before accepting. Defaults to 1.
@@ -56,8 +56,8 @@ async function runSmokehouse(smokeTestDefns, smokehouseOptions = {}) {
   const smokePromises = [];
   for (const testDefn of smokeTestDefns) {
     // If defn is set to `runSerially`, we'll run its tests in succession, not parallel.
-    const concurrencyLimit = testDefn.runSerially ? 1 : jobs;
-    const options = {concurrencyLimit, lighthouseRunner, retries, isDebug};
+    const concurrency = testDefn.runSerially ? 1 : jobs;
+    const options = {concurrency, lighthouseRunner, retries, isDebug};
     const result = runSmokeTestDefn(concurrentMapper, testDefn, options);
     smokePromises.push(result);
   }
@@ -89,12 +89,12 @@ function assertPositiveInteger(loggableName, value) {
  * once all are finished.
  * @param {ConcurrentMapper} concurrentMapper
  * @param {Smokehouse.TestDfn} smokeTestDefn
- * @param {{concurrencyLimit: number, retries: number, lighthouseRunner: LighthouseRunner, isDebug?: boolean}} defnOptions
+ * @param {{concurrency: number, retries: number, lighthouseRunner: LighthouseRunner, isDebug?: boolean}} defnOptions
  * @return {Promise<{id: string, success: boolean}>}
  */
 async function runSmokeTestDefn(concurrentMapper, smokeTestDefn, defnOptions) {
   const {id, config: configJson, expectations} = smokeTestDefn;
-  const {concurrencyLimit, lighthouseRunner, retries, isDebug} = defnOptions;
+  const {concurrency, lighthouseRunner, retries, isDebug} = defnOptions;
 
   const individualTests = expectations.map(expectation => ({
     requestedUrl: expectation.lhr.requestedUrl,
@@ -107,10 +107,10 @@ async function runSmokeTestDefn(concurrentMapper, smokeTestDefn, defnOptions) {
 
   // Loop sequentially over expectations, comparing against Lighthouse run, and
   // reporting result.
-  const results = await concurrentMapper.map(individualTests, (test, index) => {
+  const results = await concurrentMapper.pooledMap(individualTests, (test, index) => {
     if (index === 0) console.log(`${purpleify(id)} smoketest starting…`);
     return runSmokeTest(test);
-  }, concurrencyLimit);
+  }, {concurrency});
 
   console.log(`\n${purpleify(id)} smoketest results:`);
 
@@ -153,6 +153,8 @@ function purpleify(str) {
  * @return {Promise<{passed: number, failed: number, log: string}>}
  */
 async function runSmokeTest(testOptions) {
+  // Use a buffered LocalConsole to keep logged output so it's not interleaved
+  // with other currently running tests.
   const localConsole = new LocalConsole();
   const {requestedUrl, configJson, expectation, lighthouseRunner, retries, isDebug} = testOptions;
 
