@@ -602,8 +602,17 @@ class GatherRunner {
    * @return {boolean}
    */
   static isPerfPass(passContext) {
-    const {settings, passConfig} = passContext;
-    return !settings.disableStorageReset && passConfig.recordTrace && passConfig.useThrottling;
+    const {passConfig} = passContext;
+    return passConfig.recordTrace && passConfig.useThrottling;
+  }
+
+  /**
+   * Returns whether this pass should clear the cache.
+   * @param {LH.Gatherer.PassContext} passContext
+   * @return {boolean}
+   */
+  static shouldClearCache(passContext) {
+    return !passContext.settings.disableStorageReset && GatherRunner.isPerfPass(passContext);
   }
 
   /**
@@ -631,8 +640,9 @@ class GatherRunner {
     // Go to about:blank, set up, and run `beforePass()` on gatherers.
     await GatherRunner.loadBlank(driver, passConfig.blankPage);
     await GatherRunner.setupPassNetwork(passContext);
-    const isPerfPass = GatherRunner.isPerfPass(passContext);
-    if (isPerfPass) await driver.cleanBrowserCaches(); // Clear disk & memory cache if it's a perf run
+    if (GatherRunner.shouldClearCache(passContext)) {
+      await driver.cleanBrowserCaches();
+    }
     await GatherRunner.beforePass(passContext, gathererResults);
 
     // Navigate, start recording, and run `pass()` on gatherers.
