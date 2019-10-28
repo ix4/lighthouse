@@ -87,7 +87,7 @@ class PageDependencyGraph {
       urlToNodeMap.set(record.url, urlList);
 
       // If the request was for the root document of an iframe, save an entry in our
-      // map so we can't link up the task `args.data.frame` dependencies later in graph creation.
+      // map so we can link up the task `args.data.frame` dependencies later in graph creation.
       if (record.frameId &&
           record.resourceType === NetworkRequest.TYPES.Document &&
           record.documentURL === record.url) {
