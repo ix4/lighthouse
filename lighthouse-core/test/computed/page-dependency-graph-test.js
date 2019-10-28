@@ -124,7 +124,7 @@ describe('PageDependencyGraph computed artifact:', () => {
       expect([...indexedByFrame.entries()]).toEqual([
         ['A', nodes[0]],
         ['D', nodes[3]],
-        ['collision', false],
+        ['collision', null],
       ]);
     });
   });
