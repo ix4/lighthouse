@@ -57,27 +57,27 @@ However, if an array literal is used as the expectation, an extra condition is e
 The different frontends launch smokehouse with a set of tests to run. Smokehouse then coordinates the tests using a particular method of running Lighthouse (CLI, as a bundle, etc).
 
 ```
-Frontends                                                    Lighthouse Runners
+Frontends                                                   Lighthouse Runners
 +------------+
 |            |
-|  bin (CLI) +----+                                            +--------------+
-|            |    |                                            |              |
-+------------+    |                                        +-->+     cli      |
-                  |                                        |   |              |
-+------------+    |             +---------------+          |   +--------------+
-|            |    | testDefns > |               | config > |
-|   node     +----------------->+ smokehouse.js +<---------+
-|            |    |             |               |  < lhr   |   +--------------+
-+------------+    |             +-------+-------+          |   |              |
-                  |                     ^                  +-->+   bundled    |
-+------------+    |                     |                      |              |
-|            |    |                     |                      +--------------+
-|bundle+entry+----+                     v
-|            |                 +--------+--------+
-+------------+                 |                 |
-                               |  report/assert  |
-                               |                 |
-                               +-----------------+
+|  bin (CLI) +----+                                           +--------------+
+|            |    |                                           |              |
++------------+    |                                       +-->+     cli      |
+                  |                                       |   |              |
++------------+    |            +---------------+          |   +--------------+
+|            |    | testDefns> |               |  config> |
+|   node     +---------------->+ smokehouse.js +<---------+
+|            |    |            |               |   <lhr   |   +--------------+
++------------+    |            +-------+-------+          |   |              |
+                  |                    ^                  +-->+   bundled    |
++------------+    |                    |                      |              |
+|            |    |                    |                      +--------------+
+|bundle+entry+----+                    v
+|            |                +--------+--------+
++------------+                |                 |
+                              |  report/assert  |
+                              |                 |
+                              +-----------------+
 ```
 
 ### Frontends

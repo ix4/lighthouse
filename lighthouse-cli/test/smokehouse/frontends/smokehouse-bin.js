@@ -68,7 +68,7 @@ async function cli() {
     .describe({
       'debug': 'Save test artifacts and output verbose logs',
       'jobs': 'Manually set the number of jobs to run at once. `1` runs all tests serially',
-      'retries': 'The number of times to retry failing tests before accepting. Defaults to 1',
+      'retries': 'The number of times to retry failing tests before accepting. Defaults to 0',
       'runner': 'The method of running Lighthouse',
       'tests-path': 'The path to a set of test definitions to run. Defaults to core smoke tests.',
     })

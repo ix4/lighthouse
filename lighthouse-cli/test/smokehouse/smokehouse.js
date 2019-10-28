@@ -17,13 +17,13 @@ const ConcurrentMapper = require('./concurrent-mapper.js');
 
 // The number of concurrent (`!runSerially`) tests to run if `jobs` isn't set.
 const DEFAULT_CONCURRENT_RUNS = 5;
-const DEFAULT_RETRIES = 1;
+const DEFAULT_RETRIES = 0;
 
 /**
  * @typedef SmokehouseOptions
  * @property {boolean=} isDebug If true, performs extra logging from the test runs.
  * @property {number=} jobs Manually set the number of jobs to run at once. `1` runs all tests serially.
- * @property {number=} retries The number of times to retry failing tests before accepting. Defaults to 1.
+ * @property {number=} retries The number of times to retry failing tests before accepting. Defaults to 0.
  * @property {LighthouseRunner=} lighthouseRunner A function that runs Lighthouse with the given options. Defaults to running Lighthouse via the CLI.
  */
 
@@ -49,7 +49,7 @@ async function runSmokehouse(smokeTestDefns, smokehouseOptions = {}) {
     lighthouseRunner = cliLighthouseRunner,
   } = smokehouseOptions;
   assertPositiveInteger('jobs', jobs);
-  assertPositiveInteger('retries', retries);
+  assertNonNegativeInteger('retries', retries);
 
   // Run each testDefn's tests in parallel based on the concurrencyLimit.
   const concurrentMapper = new ConcurrentMapper();
@@ -81,6 +81,15 @@ async function runSmokehouse(smokeTestDefns, smokehouseOptions = {}) {
 function assertPositiveInteger(loggableName, value) {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${loggableName} must be a positive integer`);
+  }
+}
+/**
+ * @param {string} loggableName
+ * @param {number} value
+ */
+function assertNonNegativeInteger(loggableName, value) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${loggableName} must be a non-negative integer`);
   }
 }
 
