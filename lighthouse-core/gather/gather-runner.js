@@ -640,9 +640,7 @@ class GatherRunner {
     // Go to about:blank, set up, and run `beforePass()` on gatherers.
     await GatherRunner.loadBlank(driver, passConfig.blankPage);
     await GatherRunner.setupPassNetwork(passContext);
-    if (GatherRunner.shouldClearCache(passContext)) {
-      await driver.cleanBrowserCaches();
-    }
+    if (GatherRunner.shouldClearCache(passContext)) await driver.cleanBrowserCaches();
     await GatherRunner.beforePass(passContext, gathererResults);
 
     // Navigate, start recording, and run `pass()` on gatherers.
