@@ -63,7 +63,7 @@ class PageDependencyGraph {
     const idToNodeMap = new Map();
     /** @type {Map<string, Array<NetworkNode>>} */
     const urlToNodeMap = new Map();
-    /** @type {Map<string, NetworkNode|false>} */
+    /** @type {Map<string, NetworkNode|null>} */
     const frameIdToNodeMap = new Map();
 
     networkRecords.forEach(record => {
@@ -86,11 +86,13 @@ class PageDependencyGraph {
       idToNodeMap.set(record.requestId, node);
       urlToNodeMap.set(record.url, urlList);
 
+      // If the request was for the root document of an iframe, save an entry in our
+      // map so we can't link up the task `args.data.frame` dependencies later in graph creation.
       if (record.frameId &&
           record.resourceType === NetworkRequest.TYPES.Document &&
           record.documentURL === record.url) {
         // If there's ever any ambiguity, permanently set the value to `false` to avoid loops in the graph.
-        const value = frameIdToNodeMap.has(record.frameId) ? false : node;
+        const value = frameIdToNodeMap.has(record.frameId) ? null : node;
         frameIdToNodeMap.set(record.frameId, value);
       }
     });
@@ -190,7 +192,13 @@ class PageDependencyGraph {
       cpuNode.addDependent(networkNode);
     }
 
-    /** @param {CPUNode} cpuNode @param {string|undefined} frameId */
+    /**
+     * If the node has an associated frameId, then create a dependency on the root document request
+     * for the frame. The task obviously couldn't have started before the frame was even downloaded.
+     *
+     * @param {CPUNode} cpuNode
+     * @param {string|undefined} frameId
+     */
     function addDependencyOnFrame(cpuNode, frameId) {
       if (!frameId) return;
       const networkNode = networkNodeOutput.frameIdToNodeMap.get(frameId);
@@ -397,5 +405,5 @@ module.exports = makeComputedArtifact(PageDependencyGraph);
  * @property {Array<NetworkNode>} nodes
  * @property {Map<string, NetworkNode>} idToNodeMap
  * @property {Map<string, Array<NetworkNode>>} urlToNodeMap
- * @property {Map<string, NetworkNode|false>} frameIdToNodeMap
+ * @property {Map<string, NetworkNode|null>} frameIdToNodeMap
  */
