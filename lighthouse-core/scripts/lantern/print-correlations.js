@@ -388,9 +388,9 @@ findAndPrintWorst10Sites('timeToConsistentlyInteractive', [
 ]);
 findAndPrintWorst10Sites('speedIndex', ['optimisticSI', 'pessimisticSI', 'roughEstimateOfSI']);
 findAndPrintWorst10Sites('largestContentfulPaint', [
-  'optimisticSI',
-  'pessimisticSI',
-  'roughEstimateOfSI',
+  'optimisticLCP',
+  'pessimisticLCP',
+  'roughEstimateOfLCP',
 ]);
 
 findAndPrintFixesRegressions();
