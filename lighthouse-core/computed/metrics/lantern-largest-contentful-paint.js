@@ -39,9 +39,7 @@ class LanternLargestContentfulPaint extends LanternMetric {
     return LanternFirstContentfulPaint.getFirstPaintBasedGraph(
       dependencyGraph,
       lcp,
-      // See LanternFirstContentfulPaint's getOptimisticGraph implementation for a longer description
-      // of why we exclude script initiated resources here.
-      node => node.hasRenderBlockingPriority() && node.initiatorType !== 'script'
+      _ => true
     );
   }
 
@@ -60,7 +58,7 @@ class LanternLargestContentfulPaint extends LanternMetric {
     return LanternFirstContentfulPaint.getFirstPaintBasedGraph(
       dependencyGraph,
       lcp,
-      node => node.hasRenderBlockingPriority(),
+      _ => true,
       // For pessimistic LCP we'll include *all* layout nodes
       node => node.didPerformLayout()
     );
