@@ -18,7 +18,7 @@ const FRGatherer = require('../../fraggle-rock/gather/base-gatherer.js');
 class TraceCompat extends FRGatherer {
   /** @type {LH.Gatherer.GathererMeta<'Trace'>} */
   meta = {
-    supportedModes: ['navigation'],
+    supportedModes: ['timespan', 'navigation'],
     dependencies: {Trace: TraceGatherer.symbol},
   };
 
@@ -26,7 +26,7 @@ class TraceCompat extends FRGatherer {
    * @param {LH.Gatherer.FRTransitionalContext<'Trace'>} passContext
    * @return {Promise<LH.Artifacts['traces']>}
    */
-  async afterNavigation(passContext) {
+  async getArtifact(passContext) {
     return {
       defaultPass: passContext.dependencies.Trace,
     };

@@ -5,14 +5,18 @@
  */
 'use strict';
 
-const {createMockDriver} = require('./mock-driver.js');
+/* eslint-env jest */
+
+const {createMockDriver, mockDriverSubmodules} = require('./mock-driver.js');
+const mocks = mockDriverSubmodules();
 const runner = require('../../../fraggle-rock/gather/navigation-runner.js');
 const {initializeConfig} = require('../../../fraggle-rock/config/config.js');
 const {defaultNavigationConfig} = require('../../../config/constants.js');
+const LighthouseError = require('../../../lib/lh-error.js');
+const DevtoolsLogGatherer = require('../../../gather/gatherers/devtools-log.js');
+const toDevtoolsLog = require('../../network-records-to-devtools-log.js');
 
-/* eslint-env jest */
-
-/** @typedef {{meta: LH.Gatherer.GathererMeta<'Accessibility'>, snapshot: jest.Mock<any, any>, beforeTimespan:jest.Mock<any, any>, afterTimespan: jest.Mock<any, any>, beforeNavigation:jest.Mock<any, any>, afterNavigation: jest.Mock<any, any>}} MockGatherer */
+/** @typedef {{meta: LH.Gatherer.GathererMeta<'Accessibility'>, getArtifact: jest.Mock<any, any>, startInstrumentation:jest.Mock<any, any>, stopInstrumentation: jest.Mock<any, any>, startSensitiveInstrumentation:jest.Mock<any, any>, stopSensitiveInstrumentation: jest.Mock<any, any>}} MockGatherer */
 
 describe('NavigationRunner', () => {
   let requestedUrl = '';
@@ -24,18 +28,20 @@ describe('NavigationRunner', () => {
   let config;
   /** @type {LH.Config.NavigationDefn} */
   let navigation;
+  /** @type {Map<string, LH.ArbitraryEqualityMap>} */
+  let computedCache;
 
-  /** @return {LH.Config.FRGathererDefn} */
+  /** @return {LH.Config.AnyFRGathererDefn} */
   function createGathererDefn() {
     return {
       instance: {
         name: 'Accessibility',
         meta: {supportedModes: []},
-        beforeTimespan: jest.fn(),
-        afterTimespan: jest.fn(),
-        beforeNavigation: jest.fn(),
-        afterNavigation: jest.fn(),
-        snapshot: jest.fn(),
+        startInstrumentation: jest.fn(),
+        stopInstrumentation: jest.fn(),
+        startSensitiveInstrumentation: jest.fn(),
+        stopSensitiveInstrumentation: jest.fn(),
+        getArtifact: jest.fn(),
       },
     };
   }
@@ -44,13 +50,13 @@ describe('NavigationRunner', () => {
   function createNavigation() {
     const timespanGatherer = createGathererDefn();
     timespanGatherer.instance.meta.supportedModes = ['timespan', 'navigation'];
-    timespanGatherer.instance.afterTimespan = jest.fn().mockResolvedValue({type: 'timespan'});
+    timespanGatherer.instance.getArtifact = jest.fn().mockResolvedValue({type: 'timespan'});
     const snapshotGatherer = createGathererDefn();
     snapshotGatherer.instance.meta.supportedModes = ['snapshot', 'navigation'];
-    snapshotGatherer.instance.snapshot = jest.fn().mockResolvedValue({type: 'snapshot'});
+    snapshotGatherer.instance.getArtifact = jest.fn().mockResolvedValue({type: 'snapshot'});
     const navigationGatherer = createGathererDefn();
     navigationGatherer.instance.meta.supportedModes = ['navigation'];
-    navigationGatherer.instance.afterNavigation = jest.fn().mockResolvedValue({type: 'navigation'});
+    navigationGatherer.instance.getArtifact = jest.fn().mockResolvedValue({type: 'navigation'});
 
     const navigation = {
       ...defaultNavigationConfig,
@@ -75,9 +81,12 @@ describe('NavigationRunner', () => {
     requestedUrl = 'http://example.com';
     config = initializeConfig(undefined, {gatherMode: 'navigation'}).config;
     navigation = createNavigation().navigation;
+    computedCache = new Map();
 
     mockDriver = createMockDriver();
     driver = mockDriver.asDriver();
+
+    mocks.reset();
   });
 
   describe('_setup', () => {
@@ -95,22 +104,39 @@ describe('NavigationRunner', () => {
 
     it('should navigate to the blank page', async () => {
       await runner._setup({driver, config, requestedUrl});
-      expect(mockDriver._page.goto).toHaveBeenCalledWith('about:blank');
+      expect(mocks.navigationMock.gotoURL).toHaveBeenCalledTimes(1);
+      expect(mocks.navigationMock.gotoURL).toHaveBeenCalledWith(
+        expect.anything(),
+        'about:blank',
+        expect.anything()
+      );
     });
 
-    it.todo('should throw if service worker is currently controlling the page');
-    it.todo('should enable emulation');
-    it.todo('should enable important CDP domains');
-    it.todo('should register the performance observer for navigation conditions');
-    it.todo('should shim requestIdleCallback');
-    it.todo('should reset storage');
-    it.todo('should not reset storage when skipped');
+    it('should collect base artifacts', async () => {
+      const {baseArtifacts} = await runner._setup({driver, config, requestedUrl});
+      expect(baseArtifacts).toMatchObject({URL: {requestedUrl}});
+    });
+
+    it('should prepare the target for navigation', async () => {
+      await runner._setup({driver, config, requestedUrl});
+      expect(mocks.prepareMock.prepareTargetForNavigationMode).toHaveBeenCalledTimes(1);
+    });
+
+    it('should prepare the target for navigation *after* base artifact collection', async () => {
+      mockDriver._executionContext.evaluate.mockReset();
+      mockDriver._executionContext.evaluate.mockRejectedValue(new Error('Not available'));
+      const setupPromise = runner._setup({driver, config, requestedUrl});
+      await expect(setupPromise).rejects.toThrowError(/Not available/);
+      expect(mocks.prepareMock.prepareTargetForNavigationMode).not.toHaveBeenCalled();
+    });
   });
 
   describe('_navigations', () => {
+    const run = () => runner._navigations({driver, config, requestedUrl, computedCache});
+
     it('should throw if no navigations available', async () => {
       config = {...config, navigations: null};
-      await expect(runner._navigations({driver, requestedUrl, config})).rejects.toBeTruthy();
+      await expect(run()).rejects.toBeTruthy();
     });
 
     it('should navigate as many times as there are navigations', async () => {
@@ -122,9 +148,9 @@ describe('NavigationRunner', () => {
         {gatherMode: 'navigation'}
       ).config;
 
-      await runner._navigations({driver, config, requestedUrl});
-      const navigations = mockDriver._page.goto.mock.calls;
-      const pageNavigations = navigations.filter(call => call[0] === requestedUrl);
+      await run();
+      const navigations = mocks.navigationMock.gotoURL.mock.calls;
+      const pageNavigations = navigations.filter(call => call[1] === requestedUrl);
       expect(pageNavigations).toHaveLength(4);
     });
 
@@ -142,7 +168,7 @@ describe('NavigationRunner', () => {
 
       // Both gatherers will error in these test conditions, but artifact errors
       // will be merged into single `artifacts` object.
-      const {artifacts} = await runner._navigations({driver, config, requestedUrl});
+      const {artifacts} = await run();
       const artifactIds = Object.keys(artifacts);
       expect(artifactIds).toContain('FontSize');
       expect(artifactIds).toContain('ConsoleMessages');
@@ -150,17 +176,21 @@ describe('NavigationRunner', () => {
   });
 
   describe('_navigation', () => {
+    /** @param {LH.Config.NavigationDefn} navigation */
+    const run = navigation =>
+      runner._navigation({driver, config, navigation, requestedUrl, computedCache});
+
     it('completes an end-to-end navigation', async () => {
-      const {artifacts} = await runner._navigation({driver, navigation, requestedUrl});
+      const {artifacts} = await run(navigation);
       const artifactIds = Object.keys(artifacts);
       expect(artifactIds).toContain('Timespan');
       expect(artifactIds).toContain('Snapshot');
 
-      expect(mockDriver._page.goto).toHaveBeenCalled();
+      expect(mocks.navigationMock.gotoURL).toHaveBeenCalled();
     });
 
     it('collects timespan, snapshot, and navigation artifacts', async () => {
-      const {artifacts} = await runner._navigation({driver, navigation, requestedUrl});
+      const {artifacts} = await run(navigation);
       expect(artifacts).toEqual({
         Navigation: {type: 'navigation'},
         Timespan: {type: 'timespan'},
@@ -173,30 +203,32 @@ describe('NavigationRunner', () => {
       navigation.artifacts[1].dependencies = {Accessibility: {id: 'Timespan'}};
       navigation.artifacts[2].dependencies = {Accessibility: {id: 'Timespan'}};
 
-      const {artifacts} = await runner._navigation({driver, navigation, requestedUrl});
+      const {artifacts} = await run(navigation);
       expect(artifacts).toEqual({
         Navigation: {type: 'navigation'},
         Timespan: {type: 'timespan'},
         Snapshot: {type: 'snapshot'},
       });
 
-      expect(gatherers.navigation.afterNavigation).toHaveBeenCalled();
-      const navigationArgs = gatherers.navigation.afterNavigation.mock.calls[0];
+      expect(gatherers.navigation.getArtifact).toHaveBeenCalled();
+      const navigationArgs = gatherers.navigation.getArtifact.mock.calls[0];
       expect(navigationArgs[0].dependencies).toEqual({Accessibility: {type: 'timespan'}});
 
-      expect(gatherers.snapshot.snapshot).toHaveBeenCalled();
-      const snapshotArgs = gatherers.snapshot.snapshot.mock.calls[0];
+      expect(gatherers.snapshot.getArtifact).toHaveBeenCalled();
+      const snapshotArgs = gatherers.snapshot.getArtifact.mock.calls[0];
       expect(snapshotArgs[0].dependencies).toEqual({Accessibility: {type: 'timespan'}});
     });
 
     it('passes through an error in dependencies', async () => {
       const {navigation} = createNavigation();
       const err = new Error('Error in dependency chain');
-      navigation.artifacts[0].gatherer.instance.beforeTimespan = jest.fn().mockRejectedValue(err);
+      navigation.artifacts[0].gatherer.instance.startInstrumentation = jest
+        .fn()
+        .mockRejectedValue(err);
       navigation.artifacts[1].dependencies = {Accessibility: {id: 'Timespan'}};
       navigation.artifacts[2].dependencies = {Accessibility: {id: 'Timespan'}};
 
-      const {artifacts} = await runner._navigation({driver, navigation, requestedUrl});
+      const {artifacts} = await run(navigation);
 
       expect(artifacts).toEqual({
         Navigation: expect.any(Error),
@@ -205,12 +237,12 @@ describe('NavigationRunner', () => {
       });
     });
 
-    it('passes through an error in beforeNavigation', async () => {
+    it('passes through an error in startSensitiveInstrumentation', async () => {
       const {navigation, gatherers} = createNavigation();
-      const err = new Error('Error in beforeNavigation');
-      gatherers.navigation.beforeNavigation.mockRejectedValue(err);
+      const err = new Error('Error in startSensitiveInstrumentation');
+      gatherers.navigation.startSensitiveInstrumentation.mockRejectedValue(err);
 
-      const {artifacts} = await runner._navigation({driver, navigation, requestedUrl});
+      const {artifacts} = await run(navigation);
 
       expect(artifacts).toEqual({
         Navigation: err,
@@ -219,12 +251,12 @@ describe('NavigationRunner', () => {
       });
     });
 
-    it('passes through an error in beforeTimespan', async () => {
+    it('passes through an error in startInstrumentation', async () => {
       const {navigation, gatherers} = createNavigation();
-      const err = new Error('Error in beforeTimespan');
-      gatherers.timespan.beforeTimespan.mockRejectedValue(err);
+      const err = new Error('Error in startInstrumentation');
+      gatherers.timespan.startInstrumentation.mockRejectedValue(err);
 
-      const {artifacts} = await runner._navigation({driver, navigation, requestedUrl});
+      const {artifacts} = await run(navigation);
 
       expect(artifacts).toEqual({
         Navigation: {type: 'navigation'},
@@ -232,141 +264,121 @@ describe('NavigationRunner', () => {
         Snapshot: {type: 'snapshot'},
       });
     });
+
+    it('returns navigate errors', async () => {
+      const {navigation} = createNavigation();
+      const noFcp = new LighthouseError(LighthouseError.errors.NO_FCP);
+
+      mocks.navigationMock.gotoURL.mockImplementation(
+        /** @param {*} context @param {string} url */
+        (context, url) => {
+          if (url.includes('blank')) return {finalUrl: 'about:blank', warnings: []};
+          throw noFcp;
+        }
+      );
+
+      const {artifacts, pageLoadError} = await run(navigation);
+      expect(pageLoadError).toBe(noFcp);
+      expect(artifacts).toEqual({});
+    });
+
+    it('finds page load errors in network records when available', async () => {
+      const {navigation, gatherers} = createNavigation();
+      mocks.navigationMock.gotoURL.mockResolvedValue({finalUrl: requestedUrl, warnings: []});
+      const devtoolsLog = toDevtoolsLog([{url: requestedUrl, failed: true}]);
+      gatherers.timespan.meta.symbol = DevtoolsLogGatherer.symbol;
+      gatherers.timespan.getArtifact = jest.fn().mockResolvedValue(devtoolsLog);
+
+      const {artifacts, pageLoadError} = await run(navigation);
+      expect(pageLoadError).toBeInstanceOf(LighthouseError);
+      expect(artifacts).toEqual({});
+    });
+
+    it('cleans up throttling before getArtifact', async () => {
+      const {navigation, gatherers} = createNavigation();
+      gatherers.navigation.getArtifact = jest.fn().mockImplementation(() => {
+        expect(mocks.emulationMock.clearThrottling).toHaveBeenCalled();
+      });
+
+      await run(navigation);
+      expect(mocks.emulationMock.clearThrottling).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('_setupNavigation', () => {
     it('should setup the page on the blankPage', async () => {
       navigation.blankPage = 'data:text/html;...';
-      await runner._setupNavigation({driver, navigation, requestedUrl});
-      expect(mockDriver._page.goto).toHaveBeenCalledWith('data:text/html;...');
+      await runner._setupNavigation({driver, navigation, requestedUrl, config, computedCache});
+      expect(mocks.navigationMock.gotoURL).toHaveBeenCalledWith(
+        expect.anything(),
+        'data:text/html;...',
+        expect.anything()
+      );
     });
 
-    it.todo('should setup throttling');
-    it.todo('should clear cache');
-    it.todo('should skip clear cache when requested');
+    it('should prepare target for navigation', async () => {
+      await runner._setupNavigation({driver, navigation, requestedUrl, config, computedCache});
+      expect(mocks.prepareMock.prepareTargetForIndividualNavigation).toHaveBeenCalled();
+    });
+
+    it('should return the warnings from preparation', async () => {
+      const warnings = ['Warning A', 'Warning B'];
+      mocks.prepareMock.prepareTargetForIndividualNavigation.mockResolvedValue({warnings});
+      const result = await runner._setupNavigation({
+        driver,
+        navigation,
+        requestedUrl,
+        config,
+        computedCache,
+      });
+      expect(result).toEqual({warnings});
+    });
   });
 
   describe('_navigate', () => {
+    const run = () => runner._navigate({driver, navigation, requestedUrl, config, computedCache});
+
     it('should navigate the page', async () => {
-      await runner._navigate({driver, navigation, requestedUrl});
-      expect(mockDriver._page.goto).toHaveBeenCalledWith(requestedUrl, expect.anything());
+      await run();
+      expect(mocks.navigationMock.gotoURL).toHaveBeenCalledWith(
+        expect.anything(),
+        requestedUrl,
+        expect.anything()
+      );
     });
 
-    it.todo('should wait for page conditions');
-    it.todo('should disable throttling when finished');
-    it.todo('should capture page load errors');
+    it('should return navigate results', async () => {
+      const finalUrl = 'https://lighthouse.example.com/nested/page';
+      const warnings = ['Warning A', 'Warning B'];
+      mocks.navigationMock.gotoURL.mockResolvedValue({finalUrl, warnings});
+      const result = await run();
+      expect(result).toEqual({finalUrl, warnings, navigationError: undefined});
+    });
+
+    it('should catch navigation errors', async () => {
+      const navigationError = new LighthouseError(LighthouseError.errors.PAGE_HUNG);
+      mocks.navigationMock.gotoURL.mockRejectedValue(navigationError);
+      const result = await run();
+      expect(result).toEqual({finalUrl: requestedUrl, navigationError, warnings: []});
+    });
+
+    it('should throw regular errors', async () => {
+      mocks.navigationMock.gotoURL.mockRejectedValue(new Error('Other fatal error'));
+      await expect(run()).rejects.toThrowError('Other fatal error');
+    });
   });
 
-  describe('_collectPhaseArtifacts', () => {
-    /** @type {import('../../../fraggle-rock/gather/navigation-runner').ArtifactState} */
-    let artifacts;
-
-    beforeEach(() => {
-      artifacts = {
-        beforeNavigation: {},
-        beforeTimespan: {},
-        afterTimespan: {},
-        afterNavigation: {},
-        snapshot: {},
-      };
+  describe('_cleanup', () => {
+    it('should clear storage when storage was reset', async () => {
+      config.settings.disableStorageReset = false;
+      await runner._cleanup({requestedUrl, driver, config});
+      expect(mocks.storageMock.clearDataForOrigin).toHaveBeenCalled();
     });
 
-    it('should run the navigation phase of navigation gatherers', async () => {
-      const {navigation, gatherers} = createNavigation();
-      const navigationContext = {driver, navigation, requestedUrl};
-      await runner._collectPhaseArtifacts({navigationContext, artifacts, phase: 'afterNavigation'});
-      expect(artifacts.afterNavigation).toEqual({Navigation: expect.any(Promise)});
-      expect(await artifacts.afterNavigation.Navigation).toEqual({type: 'navigation'});
-      expect(gatherers.navigation.afterNavigation).toHaveBeenCalled();
-      // They were invoked but no artifact was produced.
-      expect(gatherers.timespan.afterNavigation).toHaveBeenCalled();
-      expect(gatherers.snapshot.afterNavigation).toHaveBeenCalled();
-    });
-
-    it('should run the snapshot phase of snapshot gatherers', async () => {
-      const {navigation, gatherers} = createNavigation();
-      const navigationContext = {driver, navigation, requestedUrl};
-      await runner._collectPhaseArtifacts({navigationContext, artifacts, phase: 'snapshot'});
-      expect(artifacts.snapshot).toEqual({Snapshot: expect.any(Promise)});
-      expect(await artifacts.snapshot.Snapshot).toEqual({type: 'snapshot'});
-      expect(gatherers.snapshot.snapshot).toHaveBeenCalled();
-      expect(gatherers.navigation.snapshot).not.toHaveBeenCalled();
-      expect(gatherers.timespan.snapshot).not.toHaveBeenCalled();
-    });
-
-    it('should run the timespan phase of timespan gatherers', async () => {
-      const {navigation, gatherers} = createNavigation();
-      const navigationContext = {driver, navigation, requestedUrl};
-      await runner._collectPhaseArtifacts({navigationContext, artifacts, phase: 'afterTimespan'});
-      expect(artifacts.afterTimespan).toEqual({Timespan: expect.any(Promise)});
-      expect(await artifacts.afterTimespan.Timespan).toEqual({type: 'timespan'});
-      expect(gatherers.timespan.afterTimespan).toHaveBeenCalled();
-      expect(gatherers.snapshot.afterTimespan).not.toHaveBeenCalled();
-      expect(gatherers.navigation.afterTimespan).not.toHaveBeenCalled();
-    });
-
-    it('should pass dependencies from prior phase to gatherers', async () => {
-      artifacts.afterTimespan = {
-        Dependency: Promise.resolve([{src: 'https://example.com/image.jpg'}]),
-      };
-
-      const {navigation, gatherers} = createNavigation();
-      navigation.artifacts = [
-        {...navigation.artifacts[1], dependencies: {ImageElements: {id: 'Dependency'}}},
-      ];
-
-      const navigationContext = {driver, navigation, requestedUrl};
-      await runner._collectPhaseArtifacts({navigationContext, artifacts, phase: 'snapshot'});
-      expect(artifacts.snapshot).toEqual({
-        Snapshot: expect.any(Promise),
-      });
-      expect(gatherers.snapshot.snapshot).toHaveBeenCalled();
-
-      const receivedDependencies = gatherers.snapshot.snapshot.mock.calls[0][0].dependencies;
-      expect(receivedDependencies).toEqual({
-        ImageElements: [{src: 'https://example.com/image.jpg'}],
-      });
-    });
-
-    it('should pass dependencies within same phase to gatherers', async () => {
-      const {navigation, gatherers} = createNavigation();
-      const gatherer = navigation.artifacts[1].gatherer;
-      navigation.artifacts = [
-        {id: 'Dependency', gatherer},
-        {id: 'Snapshot', gatherer, dependencies: {ImageElements: {id: 'Dependency'}}},
-      ];
-
-      const navigationContext = {driver, navigation, requestedUrl};
-      await runner._collectPhaseArtifacts({navigationContext, artifacts, phase: 'snapshot'});
-      expect(artifacts.snapshot).toEqual({
-        Dependency: expect.any(Promise),
-        Snapshot: expect.any(Promise),
-      });
-
-      // Ensure neither threw an exception
-      await artifacts.snapshot.Dependency;
-      await artifacts.snapshot.Snapshot;
-
-      expect(gatherers.snapshot.snapshot).toHaveBeenCalledTimes(2);
-
-      const receivedDependencies = gatherers.snapshot.snapshot.mock.calls[1][0].dependencies;
-      expect(receivedDependencies).toEqual({
-        ImageElements: {type: 'snapshot'},
-      });
-    });
-
-    it('should combine the previous promises', async () => {
-      artifacts.beforeTimespan = {Timespan: Promise.reject(new Error('beforeTimespan rejection'))};
-
-      const {navigation, gatherers} = createNavigation();
-      const navigationContext = {driver, navigation, requestedUrl};
-      await runner._collectPhaseArtifacts({navigationContext, artifacts, phase: 'afterTimespan'});
-      expect(artifacts.afterTimespan).toEqual({Timespan: expect.any(Promise)});
-      await expect(artifacts.afterTimespan.Timespan).rejects.toMatchObject({
-        message: 'beforeTimespan rejection',
-      });
-      expect(gatherers.timespan.afterTimespan).not.toHaveBeenCalled();
-      expect(gatherers.snapshot.afterTimespan).not.toHaveBeenCalled();
+    it('should not clear storage when storage reset was disabled', async () => {
+      config.settings.disableStorageReset = true;
+      await runner._cleanup({requestedUrl, driver, config});
+      expect(mocks.storageMock.clearDataForOrigin).not.toHaveBeenCalled();
     });
   });
 });

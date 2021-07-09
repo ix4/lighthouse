@@ -19,8 +19,6 @@ const fs = require('fs');
 const readline = require('readline');
 const yargs = require('yargs/yargs');
 
-/** @typedef {{result?: {value?: string, objectId?: number}, exceptionDetails?: object}} RuntimeEvaluateResponse */
-
 const argv = yargs(process.argv.slice(2))
   .usage('$0 [url]')
   .help('help').alias('help', 'h')
@@ -37,7 +35,7 @@ const argv = yargs(process.argv.slice(2))
   .argv;
 
 /**
- * https://source.chromium.org/chromium/chromium/src/+/master:third_party/devtools-frontend/src/front_end/test_runner/TestRunner.js;l=170;drc=f59e6de269f4f50bca824f8ca678d5906c7d3dc8
+ * https://source.chromium.org/chromium/chromium/src/+/main:third_party/devtools-frontend/src/front_end/test_runner/TestRunner.js;l=170;drc=f59e6de269f4f50bca824f8ca678d5906c7d3dc8
  * @param {Record<string, function>} receiver
  * @param {string} methodName
  * @param {function} override
@@ -116,7 +114,7 @@ async function testPage(browser, url) {
       .catch(reject);
   });
 
-  /** @type {RuntimeEvaluateResponse|undefined} */
+  /** @type {Omit<puppeteer.Protocol.Runtime.EvaluateResponse, 'result'>|undefined} */
   let startLHResponse;
   while (!startLHResponse || startLHResponse.exceptionDetails) {
     startLHResponse = await session.send('Runtime.evaluate', {
@@ -125,7 +123,7 @@ async function testPage(browser, url) {
     }).catch(err => ({exceptionDetails: err}));
   }
 
-  /** @type {RuntimeEvaluateResponse} */
+  /** @type {puppeteer.Protocol.Runtime.EvaluateResponse} */
   const remoteLhrResponse = await session.send('Runtime.evaluate', {
     expression: sniffLhr,
     awaitPromise: true,
@@ -138,7 +136,7 @@ async function testPage(browser, url) {
 
   await page.close();
 
-  return JSON.stringify(remoteLhrResponse.result.value);
+  return JSON.stringify(remoteLhrResponse.result.value, null, 2);
 }
 
 /**
@@ -182,8 +180,12 @@ async function run() {
 
   const urlList = await readUrlList();
   for (let i = 0; i < urlList.length; ++i) {
-    const lhr = await testPage(browser, urlList[i]);
-    fs.writeFileSync(`${argv.o}/lhr-${i}.json`, lhr);
+    try {
+      const lhr = await testPage(browser, urlList[i]);
+      fs.writeFileSync(`${argv.o}/lhr-${i}.json`, lhr);
+    } catch (error) {
+      fs.writeFileSync(`${argv.o}/lhr-${i}.json`, JSON.stringify({error: error.message}, null, 2));
+    }
   }
 
   await browser.close();

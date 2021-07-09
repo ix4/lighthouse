@@ -63,8 +63,8 @@ describe('Fraggle Rock Config', () => {
   });
 
   it('should throw on invalid artifact definitions', () => {
-    const configJson = {artifacts: [{id: 'ImageElements', gatherer: 'image-elements'}]};
-    expect(() => initializeConfig(configJson, {gatherMode})).toThrow(/ImageElements gatherer/);
+    const configJson = {artifacts: [{id: 'HTTPRedirect', gatherer: 'http-redirect'}]};
+    expect(() => initializeConfig(configJson, {gatherMode})).toThrow(/HTTPRedirect gatherer/);
   });
 
   it('should resolve navigation definitions', () => {
@@ -240,13 +240,6 @@ describe('Fraggle Rock Config', () => {
     it('should throw when timespan needs navigation', () => {
       dependentGatherer.meta.supportedModes = ['timespan'];
       dependencyGatherer.meta.supportedModes = ['navigation'];
-      expect(() => initializeConfig(configJson, {gatherMode: 'navigation'}))
-        .toThrow(/Dependency.*is invalid/);
-    });
-
-    it('should throw when navigation needs snapshot', () => {
-      dependentGatherer.meta.supportedModes = ['navigation'];
-      dependencyGatherer.meta.supportedModes = ['snapshot'];
       expect(() => initializeConfig(configJson, {gatherMode: 'navigation'}))
         .toThrow(/Dependency.*is invalid/);
     });

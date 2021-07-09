@@ -69,6 +69,14 @@ describe('Fraggle Rock Config Filtering', () => {
       ...auditMeta,
     };
   }
+  class NavigationOnlyAudit extends BaseAudit {
+    static meta = {
+      id: 'navigation-only',
+      requiredArtifacts: /** @type {any} */ (['Snapshot', 'Timespan']),
+      supportedModes: /** @type {['navigation']} */ (['navigation']),
+      ...auditMeta,
+    };
+  }
 
   const audits = [SnapshotAudit, TimespanAudit, NavigationAudit, ManualAudit].map(audit => ({
     implementation: audit,
@@ -86,6 +94,25 @@ describe('Fraggle Rock Config Filtering', () => {
         {implementation: SnapshotAudit, options: {}},
         {implementation: ManualAudit, options: {}},
       ]);
+    });
+
+    it('should not filter audits with dependencies on base artifacts', () => {
+      class SnapshotWithBase extends BaseAudit {
+        static meta = {
+          id: 'snapshot',
+          requiredArtifacts: /** @type {any} */ (['Snapshot', 'URL', 'Timing']),
+          ...auditMeta,
+        };
+      }
+
+      const auditsWithBaseArtifacts = [SnapshotWithBase, TimespanAudit].map(audit => ({
+        implementation: audit,
+        options: {},
+      }));
+      const partialArtifacts = [{id: 'Snapshot', gatherer: {instance: snapshotGatherer}}];
+      expect(
+        filters.filterAuditsByAvailableArtifacts(auditsWithBaseArtifacts, partialArtifacts)
+      ).toEqual([{implementation: SnapshotWithBase, options: {}}]);
     });
 
     it('should be noop when all artifacts available', () => {
@@ -133,16 +160,16 @@ describe('Fraggle Rock Config Filtering', () => {
         {implementation: ManualAudit, options: {}},
       ];
 
-      const filteredCategories = filters.filterCategoriesByAvailableAudits({
-        snapshot: categories.snapshot,
-        timespanWithManual: {
-          title: 'Timespan + Manual',
-          auditRefs: [
-            {id: 'timespan', weight: 0},
-            {id: 'manual', weight: 0},
-          ],
+      const filteredCategories = filters.filterCategoriesByAvailableAudits(
+        {
+          snapshot: categories.snapshot,
+          timespanWithManual: {
+            title: 'Timespan + Manual',
+            auditRefs: [{id: 'timespan', weight: 0}, {id: 'manual', weight: 0}],
+          },
         },
-      }, partialAudits);
+        partialAudits
+      );
       expect(filteredCategories).not.toHaveProperty('timespanWithManual');
     });
 
@@ -158,6 +185,33 @@ describe('Fraggle Rock Config Filtering', () => {
 
     it('should be noop when all audits available', () => {
       expect(filters.filterCategoriesByAvailableAudits(categories, audits)).toEqual(categories);
+    });
+  });
+
+  describe('filterAuditsByGatherMode', () => {
+    it('should handle null', () => {
+      expect(filters.filterAuditsByGatherMode(null, 'timespan')).toBeNull();
+    });
+
+    it('should filter unsupported audits', () => {
+      const timespanAudits = [TimespanAudit, NavigationOnlyAudit].map(audit => ({
+        implementation: audit,
+        options: {},
+      }));
+      expect(filters.filterAuditsByGatherMode(timespanAudits, 'timespan')).toEqual([
+        {implementation: TimespanAudit, options: {}},
+      ]);
+    });
+
+    it('should keep audits without explicit modes defined', () => {
+      const timespanAudits = [TimespanAudit, NavigationAudit].map(audit => ({
+        implementation: audit,
+        options: {},
+      }));
+      expect(filters.filterAuditsByGatherMode(timespanAudits, 'timespan')).toEqual([
+        {implementation: TimespanAudit, options: {}},
+        {implementation: NavigationAudit, options: {}},
+      ]);
     });
   });
 

@@ -9,6 +9,7 @@ import _LanternSimulator = require('../lighthouse-core/lib/dependency-graph/simu
 import _NetworkRequest = require('../lighthouse-core/lib/network-request.js');
 import speedline = require('speedline-core');
 import TextSourceMap = require('../lighthouse-core/lib/cdt/generated/SourceMap.js');
+import _ArbitraryEqualityMap = require('../lighthouse-core/lib/arbitrary-equality-map.js');
 
 type _TaskNode = import('../lighthouse-core/lib/tracehouse/main-thread-tasks.js').TaskNode;
 
@@ -19,25 +20,10 @@ declare global {
     export interface Artifacts extends BaseArtifacts, GathererArtifacts {}
 
     export type FRArtifacts = StrictOmit<Artifacts,
-      | 'AnchorElements'
-      | 'CSSUsage'
       | 'Fonts'
-      | 'FullPageScreenshot'
       | 'HTTPRedirect'
-      | 'ImageElements'
-      | 'InspectorIssues'
-      | 'JsUsage'
-      | 'LinkElements'
-      | 'MainDocumentContent'
       | 'Manifest'
       | 'MixedContent'
-      | 'OptimizedImages'
-      | 'ResponseCompression'
-      | 'ScriptElements'
-      | 'ServiceWorker'
-      | 'SourceMaps'
-      | 'TagsBlockingFirstPaint'
-      | 'TraceElements'
       | keyof FRBaseArtifacts
     >;
 
@@ -58,10 +44,6 @@ declare global {
       fetchTime: string;
       /** A set of warnings about unexpected things encountered while loading and testing the page. */
       LighthouseRunWarnings: Array<string | IcuMessage>;
-      /** Device which Chrome is running on. */
-      HostFormFactor: 'desktop'|'mobile';
-      /** The user agent string of the version of Chrome used. */
-      HostUserAgent: string;
       /** The benchmark index that indicates rough device class. */
       BenchmarkIndex: number;
       /** An object containing information about the testing configuration used by Lighthouse. */
@@ -84,6 +66,10 @@ declare global {
      * The set of base artifacts that were replaced by standard gatherers in Fraggle Rock.
      */
     export interface LegacyBaseArtifacts {
+      /** Device which Chrome is running on. */
+      HostFormFactor: 'desktop'|'mobile';
+      /** The user agent string of the version of Chrome used. */
+      HostUserAgent: string;
       /** The user agent string that Lighthouse used to load the page. Set to the empty string if unknown. */
       NetworkUserAgent: string;
       /** Information on detected tech stacks (e.g. JS libraries) used by the page. */
@@ -126,7 +112,7 @@ declare global {
      * Artifacts provided by the default gatherers. Augment this interface when adding additional
      * gatherers. Changes to these artifacts are not considered a breaking Lighthouse change.
      */
-    export interface GathererArtifacts extends PublicGathererArtifacts {
+    export interface GathererArtifacts extends PublicGathererArtifacts,LegacyBaseArtifacts {
       /** The results of running the aXe accessibility tests on the page. */
       Accessibility: Artifacts.Accessibility;
       /** Array of all anchors on the page. */
@@ -154,6 +140,8 @@ declare global {
       FormElements: Artifacts.Form[];
       /** Screenshot of the entire page (rather than just the above the fold content). */
       FullPageScreenshot: Artifacts.FullPageScreenshot | null;
+      /** Information about how Lighthouse artifacts were gathered. */
+      GatherContext: {gatherMode: LH.Gatherer.GatherMode};
       /** Information about event listeners registered on the global object. */
       GlobalListeners: Array<Artifacts.GlobalListener>;
       /** Whether the page ended up on an HTTPS page after attempting to load the HTTP version. */
@@ -188,7 +176,13 @@ declare global {
       TraceElements: Artifacts.TraceElement[];
     }
 
+    export type ArbitraryEqualityMap = _ArbitraryEqualityMap;
+
     module Artifacts {
+      export type ComputedContext = Immutable<{
+        computedCache: Map<string, ArbitraryEqualityMap>;
+      }>;
+
       export type NetworkRequest = _NetworkRequest;
       export type TaskNode = _TaskNode;
       export type MetaElement = LH.Artifacts['MetaElements'][0];
@@ -439,6 +433,7 @@ declare global {
       }
 
       export interface ImageElement {
+        /** The resolved source URL of the image. Similar to `currentSrc`, but resolved for CSS images as well. */
         src: string;
         /** The srcset attribute value. @see https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/srcset */
         srcset: string;
@@ -446,39 +441,41 @@ declare global {
         displayedWidth: number;
         /** The displayed height of the image, uses img.height when available falling back to clientHeight. See https://codepen.io/patrickhulce/pen/PXvQbM for examples. */
         displayedHeight: number;
-        /** The natural width of the underlying image, uses img.naturalWidth. See https://codepen.io/patrickhulce/pen/PXvQbM for examples. */
-        naturalWidth?: number;
+        /** The raw width attribute of the image element. CSS images will be set to null. */
+        attributeWidth: string | null;
+        /** The raw height attribute of the image element. CSS images will be set to null. */
+        attributeHeight: string | null;
         /**
-         * The natural height of the underlying image, uses img.naturalHeight. See https://codepen.io/patrickhulce/pen/PXvQbM for examples.
-         * TODO: explore revising the shape of this data. https://github.com/GoogleChrome/lighthouse/issues/12077
+         * The natural width and height of the underlying image resource, uses img.naturalHeight/img.naturalWidth. See https://codepen.io/patrickhulce/pen/PXvQbM for examples.
+         * Set to `undefined` if the data could not be collected.
          */
-        naturalHeight?: number;
-        /** The raw width attribute of the image element. CSS images will be set to the empty string. */
-        attributeWidth: string;
-        /** The raw height attribute of the image element. CSS images will be set to the empty string. */
-        attributeHeight: string;
+        naturalDimensions?: {
+          width: number;
+          height: number;
+        };
         /**
-         * The CSS width property of the image element.
-         * TODO: explore deprecating this in favor of _privateCssSizing. https://github.com/GoogleChrome/lighthouse/issues/12077
+         * The width/height of the element as defined by matching CSS rules.
+         * These are distinct from the `computedStyles` properties in that they are the raw property value.
+         * e.g. `width` would be `"100vw"`, not the computed width in pixels.
+         * Set to `undefined` if the data was not collected.
          */
-        cssWidth?: string;
-        /**
-         * The CSS height property of the image element.
-         * TODO: explore deprecating this in favor of _privateCssSizing
-         */
-        cssHeight?: string;
-        /**
-         * The width/height of the element as defined by matching CSS rules. Set to `undefined` if the data was not collected.
-         * TODO: Finalize naming/shape of this data prior to Lighthouse 8. https://github.com/GoogleChrome/lighthouse/issues/12077
-         */
-        _privateCssSizing?: {
+        cssEffectiveRules?: {
           /** The width of the image as expressed by CSS rules. Set to `null` if there was no width set in CSS. */
           width: string | null;
           /** The height of the image as expressed by CSS rules. Set to `null` if there was no height set in CSS. */
           height: string | null;
           /** The aspect ratio of the image as expressed by CSS rules. Set to `null` if there was no aspect ratio set in CSS. */
           aspectRatio: string | null;
-        }
+        };
+        /** The computed styles as determined by `getComputedStyle`. */
+        computedStyles: {
+          /** CSS `position` property. */
+          position: string;
+          /** CSS `object-fit` property. */
+          objectFit: string;
+          /** CSS `image-rendering` propertry. */
+          imageRendering: string;
+        };
         /** The BoundingClientRect of the element. */
         clientRect: {
           top: number;
@@ -486,18 +483,12 @@ declare global {
           left: number;
           right: number;
         };
-        /** The CSS position attribute of the element */
-        cssComputedPosition: string;
         /** Flags whether this element was an image via CSS background-image rather than <img> tag. */
         isCss: boolean;
         /** Flags whether this element was contained within a <picture> tag. */
         isPicture: boolean;
         /** Flags whether this element was contained within a ShadowRoot */
         isInShadowDOM: boolean;
-        /** `object-fit` CSS property. */
-        cssComputedObjectFit: string;
-        /** `image-rendering` propertry. */
-        cssComputedImageRendering: string;
         /** The MIME type of the underlying image file. */
         mimeType?: string;
         /** Details for node in DOM for the image element */
@@ -621,12 +612,18 @@ declare global {
         devtoolsLog: DevtoolsLog;
         trace: Trace;
         settings: Immutable<Config.Settings>;
+        gatherContext: Artifacts['GatherContext'];
         simulator?: LanternSimulator;
       }
 
       export interface MetricComputationData extends MetricComputationDataInput {
         networkRecords: Array<Artifacts.NetworkRequest>;
-        traceOfTab: TraceOfTab;
+        processedTrace: ProcessedTrace;
+        processedNavigation?: ProcessedNavigation;
+      }
+
+      export interface NavigationMetricComputationData extends MetricComputationData {
+        processedNavigation: ProcessedNavigation;
       }
 
       export interface Metric {
@@ -654,6 +651,11 @@ declare global {
 
       export interface TraceTimes {
         timeOrigin: number;
+        traceEnd: number;
+      }
+
+      export interface NavigationTraceTimes {
+        timeOrigin: number;
         firstPaint?: number;
         firstContentfulPaint: number;
         firstContentfulPaintAllFrames: number;
@@ -665,23 +667,32 @@ declare global {
         domContentLoaded?: number;
       }
 
-      export interface TraceOfTab {
-        /** The raw timestamps of key metric events, in microseconds. */
+      export interface ProcessedTrace {
+        /** The raw timestamps of key events, in microseconds. */
         timestamps: TraceTimes;
-        /** The relative times from navigationStart to key metric events, in milliseconds. */
+        /** The relative times from timeOrigin to key events, in milliseconds. */
         timings: TraceTimes;
         /** The subset of trace events from the page's process, sorted by timestamp. */
         processEvents: Array<TraceEvent>;
         /** The subset of trace events from the page's main thread, sorted by timestamp. */
         mainThreadEvents: Array<TraceEvent>;
+        /** The subset of trace events from the main frame, sorted by timestamp. */
+        frameEvents: Array<TraceEvent>;
         /** The subset of trace events from the main frame and any child frames, sorted by timestamp. */
         frameTreeEvents: Array<TraceEvent>;
         /** IDs for the trace's main frame, process, and thread. */
         mainFrameIds: {pid: number, tid: number, frameId: string};
         /** The list of frames committed in the trace. */
         frames: Array<{id: string, url: string}>;
-        /** The trace event marking the time at which the page load should consider to have begun. Typically the same as the navigationStart but might differ due to SPA navigations, client-side redirects, etc. */
+        /** The trace event marking the time at which the run should consider to have begun. Typically the same as the navigationStart but might differ due to SPA navigations, client-side redirects, etc. In the FR timespan case, this event is injected by Lighthouse itself. */
         timeOriginEvt: TraceEvent;
+      }
+
+      export interface ProcessedNavigation {
+        /** The raw timestamps of key metric events, in microseconds. */
+        timestamps: NavigationTraceTimes;
+        /** The relative times from navigationStart to key metric events, in milliseconds. */
+        timings: NavigationTraceTimes;
         /** The trace event marking firstPaint, if it was found. */
         firstPaintEvt?: TraceEvent;
         /** The trace event marking firstContentfulPaint, if it was found. */
@@ -732,40 +743,38 @@ declare global {
       }
 
       export interface TimingSummary {
-        firstContentfulPaint: number;
+        firstContentfulPaint: number | undefined;
         firstContentfulPaintTs: number | undefined;
         firstContentfulPaintAllFrames: number | undefined;
         firstContentfulPaintAllFramesTs: number | undefined;
-        firstMeaningfulPaint: number;
+        firstMeaningfulPaint: number | undefined;
         firstMeaningfulPaintTs: number | undefined;
         largestContentfulPaint: number | undefined;
         largestContentfulPaintTs: number | undefined;
         largestContentfulPaintAllFrames: number | undefined;
         largestContentfulPaintAllFramesTs: number | undefined;
-        firstCPUIdle: number | undefined;
-        firstCPUIdleTs: number | undefined;
         interactive: number | undefined;
         interactiveTs: number | undefined;
         speedIndex: number | undefined;
         speedIndexTs: number | undefined;
-        estimatedInputLatency: number;
-        estimatedInputLatencyTs: number | undefined;
         maxPotentialFID: number | undefined;
         cumulativeLayoutShift: number | undefined;
-        cumulativeLayoutShiftAllFrames: number | undefined;
-        totalBlockingTime: number;
+        cumulativeLayoutShiftMainFrame: number | undefined;
+        totalCumulativeLayoutShift: number | undefined;
+        totalBlockingTime: number | undefined;
         observedTimeOrigin: number;
         observedTimeOriginTs: number;
-        observedNavigationStart: number;
-        observedNavigationStartTs: number;
+        observedNavigationStart: number | undefined;
+        observedNavigationStartTs: number | undefined;
         observedCumulativeLayoutShift: number | undefined;
-        observedCumulativeLayoutShiftAllFrames: number | undefined;
+        observedCumulativeLayoutShiftMainFrame: number | undefined;
+        observedTotalCumulativeLayoutShift: number | undefined;
         observedFirstPaint: number | undefined;
         observedFirstPaintTs: number | undefined;
-        observedFirstContentfulPaint: number;
-        observedFirstContentfulPaintTs: number;
-        observedFirstContentfulPaintAllFrames: number;
-        observedFirstContentfulPaintAllFramesTs: number;
+        observedFirstContentfulPaint: number | undefined;
+        observedFirstContentfulPaintTs: number | undefined;
+        observedFirstContentfulPaintAllFrames: number | undefined;
+        observedFirstContentfulPaintAllFramesTs: number | undefined;
         observedFirstMeaningfulPaint: number | undefined;
         observedFirstMeaningfulPaintTs: number | undefined;
         observedLargestContentfulPaint: number | undefined;
@@ -784,11 +793,6 @@ declare global {
         observedLastVisualChangeTs: number;
         observedSpeedIndex: number;
         observedSpeedIndexTs: number;
-        layoutShiftAvgSessionGap5s: number,
-        layoutShiftMaxSessionGap1s: number,
-        layoutShiftMaxSessionGap1sLimit5s: number,
-        layoutShiftMaxSliding1s: number,
-        layoutShiftMaxSliding300ms: number,
       }
 
       export interface Form {

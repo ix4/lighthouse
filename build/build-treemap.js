@@ -5,8 +5,41 @@
  */
 'use strict';
 
+/** @typedef {import('../lighthouse-core/lib/i18n/locales').LhlMessages} LhlMessages */
+
 const fs = require('fs');
 const GhPagesApp = require('./gh-pages-app.js');
+const {LH_ROOT} = require('../root.js');
+
+/**
+ * Extract only the strings needed for lighthouse-treemap into
+ * a script that sets a global variable `strings`, whose keys
+ * are locale codes (en-US, es, etc.) and values are localized UIStrings.
+ */
+function buildStrings() {
+  const locales = require('../lighthouse-core/lib/i18n/locales.js');
+  const UIStrings = require(
+    // Prevent `tsc -p .` from evaluating util.js using core types, it is already typchecked by `tsc -p lighthouse-treemap`.
+    '' + '../lighthouse-treemap/app/src/util.js'
+  ).UIStrings;
+  const strings = /** @type {Record<LH.Locale, LhlMessages>} */ ({});
+
+  for (const [locale, lhlMessages] of Object.entries(locales)) {
+    const localizedStrings = Object.fromEntries(
+      Object.entries(lhlMessages).map(([icuMessageId, v]) => {
+        const [filename, varName] = icuMessageId.split(' | ');
+        if (!filename.endsWith('util.js') || !(varName in UIStrings)) {
+          return [];
+        }
+
+        return [varName, v];
+      })
+    );
+    strings[/** @type {LH.Locale} */ (locale)] = localizedStrings;
+  }
+
+  return 'const strings =' + JSON.stringify(strings, null, 2) + ';';
+}
 
 /**
  * Build treemap app, optionally deploying to gh-pages if `--deploy` flag was set.
@@ -14,16 +47,34 @@ const GhPagesApp = require('./gh-pages-app.js');
 async function run() {
   const app = new GhPagesApp({
     name: 'treemap',
-    appDir: `${__dirname}/../lighthouse-treemap/app`,
+    appDir: `${LH_ROOT}/lighthouse-treemap/app`,
     html: {path: 'index.html'},
     stylesheets: [
+      fs.readFileSync(require.resolve('tabulator-tables/dist/css/tabulator.min.css'), 'utf8'),
       {path: 'styles/*'},
     ],
     javascripts: [
+      /* eslint-disable max-len */
+      fs.readFileSync(require.resolve('idb-keyval/dist/idb-keyval-min.js'), 'utf8'),
+      fs.readFileSync(require.resolve('event-target-shim/umd'), 'utf8'),
       fs.readFileSync(require.resolve('webtreemap-cdt'), 'utf8'),
-      {path: 'src/*'},
+      fs.readFileSync(require.resolve('tabulator-tables/dist/js/tabulator_core.js'), 'utf8'),
+      fs.readFileSync(require.resolve('tabulator-tables/dist/js/modules/sort.js'), 'utf8'),
+      fs.readFileSync(require.resolve('tabulator-tables/dist/js/modules/format.js'), 'utf8'),
+      fs.readFileSync(require.resolve('tabulator-tables/dist/js/modules/resize_columns.js'), 'utf8'),
+      fs.readFileSync(require.resolve('pako/dist/pako_inflate.js'), 'utf-8'),
+      /* eslint-enable max-len */
+      buildStrings(),
+      {path: '../../report/renderer/logger.js'},
+      {path: '../../report/renderer/i18n.js'},
+      {path: '../../report/renderer/text-encoding.js'},
+      {path: '../../lighthouse-viewer/app/src/drag-and-drop.js'},
+      {path: '../../lighthouse-viewer/app/src/github-api.js'},
+      {path: '../../lighthouse-viewer/app/src/firebase-auth.js'},
+      {path: 'src/**/*'},
     ],
     assets: [
+      {path: 'images/**/*'},
       {path: 'debug.json'},
     ],
   });

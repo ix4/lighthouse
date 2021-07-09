@@ -7,6 +7,19 @@
 
 const Audit = require('../../audits/audit.js');
 
+/** @type {Record<keyof LH.FRBaseArtifacts, string>} */
+const baseArtifactKeySource = {
+  fetchTime: '',
+  LighthouseRunWarnings: '',
+  BenchmarkIndex: '',
+  settings: '',
+  Timing: '',
+  URL: '',
+  PageLoadError: '',
+};
+
+const baseArtifactKeys = Object.keys(baseArtifactKeySource);
+
 /**
  * Filters an array of artifacts down to the set that supports the specified gather mode.
  *
@@ -25,17 +38,35 @@ function filterArtifactsByGatherMode(artifacts, mode) {
  * Filters an array of audits down to the set that can be computed using only the specified artifacts.
  *
  * @param {LH.Config.FRConfig['audits']} audits
- * @param {Array<LH.Config.ArtifactDefn>} availableArtifacts
+ * @param {Array<LH.Config.AnyArtifactDefn>} availableArtifacts
  * @return {LH.Config.FRConfig['audits']}
  */
 function filterAuditsByAvailableArtifacts(audits, availableArtifacts) {
   if (!audits) return null;
 
-  const availableAritfactIds = new Set(availableArtifacts.map(artifact => artifact.id));
-
-  return audits.filter(audit =>
-    audit.implementation.meta.requiredArtifacts.every(id => availableAritfactIds.has(id))
+  const availableArtifactIds = new Set(
+    availableArtifacts.map(artifact => artifact.id).concat(baseArtifactKeys)
   );
+  return audits.filter(audit => {
+    const meta = audit.implementation.meta;
+    return meta.requiredArtifacts.every(id => availableArtifactIds.has(id));
+  });
+}
+
+/**
+ * Optional `supportedModes` property can explicitly exclude an audit even if all required artifacts are available.
+ *
+ * @param {LH.Config.FRConfig['audits']} audits
+ * @param {LH.Gatherer.GatherMode} mode
+ * @return {LH.Config.FRConfig['audits']}
+ */
+function filterAuditsByGatherMode(audits, mode) {
+  if (!audits) return null;
+
+  return audits.filter(audit => {
+    const meta = audit.implementation.meta;
+    return !meta.supportedModes || meta.supportedModes.includes(mode);
+  });
 }
 
 /**
@@ -86,7 +117,8 @@ function filterCategoriesByAvailableAudits(categories, availableAudits) {
  */
 function filterConfigByGatherMode(config, mode) {
   const artifacts = filterArtifactsByGatherMode(config.artifacts, mode);
-  const audits = filterAuditsByAvailableArtifacts(config.audits, artifacts || []);
+  const availableAudits = filterAuditsByAvailableArtifacts(config.audits, artifacts || []);
+  const audits = filterAuditsByGatherMode(availableAudits, mode);
   const categories = filterCategoriesByAvailableAudits(config.categories, audits || []);
 
   return {
@@ -101,5 +133,6 @@ module.exports = {
   filterConfigByGatherMode,
   filterArtifactsByGatherMode,
   filterAuditsByAvailableArtifacts,
+  filterAuditsByGatherMode,
   filterCategoriesByAvailableAudits,
 };

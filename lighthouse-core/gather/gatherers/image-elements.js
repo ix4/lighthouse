@@ -10,9 +10,9 @@
 'use strict';
 
 const log = require('lighthouse-logger');
-const Gatherer = require('./gatherer.js');
+const FRGatherer = require('../../fraggle-rock/gather/base-gatherer.js');
 const pageFunctions = require('../../lib/page-functions.js');
-const Driver = require('../driver.js'); // eslint-disable-line no-unused-vars
+const URL = require('../../lib/url-shim.js');
 const FontSize = require('./seo/font-size.js');
 
 /* global window, getElementsInDocument, Image, getNodeDetails, ShadowRoot */
@@ -69,19 +69,20 @@ function getHTMLImages(allElements) {
       displayedWidth: element.width,
       displayedHeight: element.height,
       clientRect: getClientRect(element),
-      naturalWidth: canTrustNaturalDimensions ? element.naturalWidth : undefined,
-      naturalHeight: canTrustNaturalDimensions ? element.naturalHeight : undefined,
-      attributeWidth: element.getAttribute('width') || '',
-      attributeHeight: element.getAttribute('height') || '',
-      cssWidth: undefined, // this will get overwritten below
-      cssHeight: undefined, // this will get overwritten below
-      _privateCssSizing: undefined, // this will get overwritten below
-      cssComputedPosition: getPosition(element, computedStyle),
+      attributeWidth: element.getAttribute('width'),
+      attributeHeight: element.getAttribute('height'),
+      naturalDimensions: canTrustNaturalDimensions ?
+        {width: element.naturalWidth, height: element.naturalHeight} :
+        undefined,
+      cssRules: undefined, // this will get overwritten below
+      computedStyles: {
+        position: getPosition(element, computedStyle),
+        objectFit: computedStyle.getPropertyValue('object-fit'),
+        imageRendering: computedStyle.getPropertyValue('image-rendering'),
+      },
       isCss: false,
       isPicture,
       loading: element.loading,
-      cssComputedObjectFit: computedStyle.getPropertyValue('object-fit'),
-      cssComputedImageRendering: computedStyle.getPropertyValue('image-rendering'),
       isInShadowDOM: element.getRootNode() instanceof ShadowRoot,
       // @ts-expect-error - getNodeDetails put into scope via stringification
       node: getNodeDetails(element),
@@ -118,17 +119,18 @@ function getCSSImages(allElements) {
       displayedWidth: element.clientWidth,
       displayedHeight: element.clientHeight,
       clientRect: getClientRect(element),
-      attributeWidth: '',
-      attributeHeight: '',
-      cssWidth: undefined,
-      cssHeight: undefined,
-      _privateCssSizing: undefined,
-      cssComputedPosition: getPosition(element, style),
+      attributeWidth: null,
+      attributeHeight: null,
+      naturalDimensions: undefined,
+      cssEffectiveRules: undefined,
+      computedStyles: {
+        position: getPosition(element, style),
+        objectFit: '',
+        imageRendering: style.getPropertyValue('image-rendering'),
+      },
       isCss: true,
       isPicture: false,
       isInShadowDOM: element.getRootNode() instanceof ShadowRoot,
-      cssComputedObjectFit: '',
-      cssComputedImageRendering: style.getPropertyValue('image-rendering'),
       // @ts-expect-error - getNodeDetails put into scope via stringification
       node: getNodeDetails(element),
     });
@@ -188,7 +190,7 @@ function findSizeDeclaration(rule, property) {
  *
  * @param {Array<LH.Crdp.CSS.RuleMatch>|undefined} matchedCSSRules
  * @param {string} property
- * @returns {string | undefined}
+ * @return {string | undefined}
  */
 function findMostSpecificCSSRule(matchedCSSRules, property) {
   /** @param {LH.Crdp.CSS.CSSStyle} declaration */
@@ -202,7 +204,7 @@ function findMostSpecificCSSRule(matchedCSSRules, property) {
 /**
  * @param {LH.Crdp.CSS.GetMatchedStylesForNodeResponse} matched CSS rules}
  * @param {string} property
- * @returns {string | null}
+ * @return {string | null}
  */
 function getEffectiveSizingRule({attributesStyle, inlineStyle, matchedCSSRules}, property) {
   // CSS sizing can't be inherited.
@@ -221,7 +223,23 @@ function getEffectiveSizingRule({attributesStyle, inlineStyle, matchedCSSRules},
   return null;
 }
 
-class ImageElements extends Gatherer {
+/**
+ * @param {LH.Artifacts.ImageElement} element
+ * @return {number}
+ */
+function getPixelArea(element) {
+  if (element.naturalDimensions) {
+    return element.naturalDimensions.height * element.naturalDimensions.width;
+  }
+  return element.displayedHeight * element.displayedWidth;
+}
+
+class ImageElements extends FRGatherer {
+  /** @type {LH.Gatherer.GathererMeta} */
+  meta = {
+    supportedModes: ['snapshot', 'timespan', 'navigation'],
+  };
+
   constructor() {
     super();
     /** @type {Map<string, {naturalWidth: number, naturalHeight: number}>} */
@@ -229,54 +247,51 @@ class ImageElements extends Gatherer {
   }
 
   /**
-   * @param {Driver} driver
+   * @param {LH.Gatherer.FRTransitionalDriver} driver
    * @param {LH.Artifacts.ImageElement} element
    */
   async fetchElementWithSizeInformation(driver, element) {
     const url = element.src;
-    if (this._naturalSizeCache.has(url)) {
-      Object.assign(element, this._naturalSizeCache.get(url));
+    let size = this._naturalSizeCache.get(url);
+    if (!size) {
+      try {
+        // We don't want this to take forever, 250ms should be enough for images that are cached
+        driver.defaultSession.setNextProtocolTimeout(250);
+        size = await driver.executionContext.evaluate(determineNaturalSize, {
+          args: [url],
+        });
+        this._naturalSizeCache.set(url, size);
+      } catch (_) {
+        // determineNaturalSize fails on invalid images, which we treat as non-visible
+      }
     }
 
-    try {
-      // We don't want this to take forever, 250ms should be enough for images that are cached
-      driver.setNextProtocolTimeout(250);
-      const size = await driver.executionContext.evaluate(determineNaturalSize, {
-        args: [url],
-      });
-      this._naturalSizeCache.set(url, size);
-      Object.assign(element, size);
-    } catch (_) {
-      // determineNaturalSize fails on invalid images, which we treat as non-visible
-      return;
-    }
+    if (!size) return;
+    element.naturalDimensions = {width: size.naturalWidth, height: size.naturalHeight};
   }
 
   /**
    * Images might be sized via CSS. In order to compute unsized-images failures, we need to collect
    * matched CSS rules to see if this is the case.
    * @url http://go/dwoqq (googlers only)
-   * @param {Driver} driver
+   * @param {LH.Gatherer.FRProtocolSession} session
    * @param {string} devtoolsNodePath
    * @param {LH.Artifacts.ImageElement} element
    */
-  async fetchSourceRules(driver, devtoolsNodePath, element) {
+  async fetchSourceRules(session, devtoolsNodePath, element) {
     try {
-      const {nodeId} = await driver.sendCommand('DOM.pushNodeByPathToFrontend', {
+      const {nodeId} = await session.sendCommand('DOM.pushNodeByPathToFrontend', {
         path: devtoolsNodePath,
       });
       if (!nodeId) return;
 
-      const matchedRules = await driver.sendCommand('CSS.getMatchedStylesForNode', {
+      const matchedRules = await session.sendCommand('CSS.getMatchedStylesForNode', {
         nodeId: nodeId,
       });
       const width = getEffectiveSizingRule(matchedRules, 'width');
       const height = getEffectiveSizingRule(matchedRules, 'height');
       const aspectRatio = getEffectiveSizingRule(matchedRules, 'aspect-ratio');
-      // COMPAT: Maintain backcompat for <= 7.0.1
-      element.cssWidth = width === null ? undefined : width;
-      element.cssHeight = height === null ? undefined : height;
-      element._privateCssSizing = {width, height, aspectRatio};
+      element.cssEffectiveRules = {width, height, aspectRatio};
     } catch (err) {
       if (/No node.*found/.test(err.message)) return;
       throw err;
@@ -284,26 +299,49 @@ class ImageElements extends Gatherer {
   }
 
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @param {LH.Gatherer.LoadData} loadData
-   * @return {Promise<LH.Artifacts['ImageElements']>}
+   *
+   * @param {LH.Gatherer.FRTransitionalDriver} driver
+   * @param {LH.Artifacts.ImageElement[]} elements
    */
-  async afterPass(passContext, loadData) {
-    const driver = passContext.driver;
-    const indexedNetworkRecords = loadData.networkRecords.reduce((map, record) => {
-      // An image response in newer formats is sometimes incorrectly marked as "application/octet-stream",
-      // so respect the extension too.
-      const isImage = /^image/.test(record.mimeType) || /\.(avif|webp)$/i.test(record.url);
-      // The network record is only valid for size information if it finished with a successful status
-      // code that indicates a complete image response.
-      if (isImage && record.finished && record.statusCode === 200) {
-        map[record.url] = record;
+  async collectExtraDetails(driver, elements) {
+    // Don't do more than 5s of this expensive devtools protocol work. See #11289
+    let reachedGatheringBudget = false;
+    setTimeout(_ => (reachedGatheringBudget = true), 5000);
+    let skippedCount = 0;
+
+    for (const element of elements) {
+      element.mimeType = URL.guessMimeType(element.src);
+
+      if (reachedGatheringBudget) {
+        skippedCount++;
+        continue;
       }
 
-      return map;
-    }, /** @type {Object<string, LH.Artifacts.NetworkRequest>} */ ({}));
+      // Need source rules to determine if sized via CSS (for unsized-images).
+      if (!element.isInShadowDOM && !element.isCss) {
+        await this.fetchSourceRules(driver.defaultSession, element.node.devtoolsNodePath, element);
+      }
+      // Images within `picture` behave strangely and natural size information isn't accurate,
+      // CSS images have no natural size information at all. Try to get the actual size if we can.
+      if (element.isPicture || element.isCss || element.srcset) {
+        await this.fetchElementWithSizeInformation(driver, element);
+      }
+    }
 
-    const elements = await driver.executionContext.evaluate(collectImageElementInfo, {
+    if (reachedGatheringBudget) {
+      log.warn('ImageElements', `Reached gathering budget of 5s. Skipped extra details for ${skippedCount}/${elements.length}`); // eslint-disable-line max-len
+    }
+  }
+
+  /**
+   * @param {LH.Gatherer.FRTransitionalContext} context
+   * @return {Promise<LH.Artifacts['ImageElements']>}
+   */
+  async getArtifact(context) {
+    const session = context.driver.defaultSession;
+    const executionContext = context.driver.executionContext;
+
+    const elements = await executionContext.evaluate(collectImageElementInfo, {
       args: [],
       deps: [
         pageFunctions.getElementsInDocumentString,
@@ -317,52 +355,20 @@ class ImageElements extends Gatherer {
     });
 
     await Promise.all([
-      driver.sendCommand('DOM.enable'),
-      driver.sendCommand('CSS.enable'),
-      driver.sendCommand('DOM.getDocument', {depth: -1, pierce: true}),
+      session.sendCommand('DOM.enable'),
+      session.sendCommand('CSS.enable'),
+      session.sendCommand('DOM.getDocument', {depth: -1, pierce: true}),
     ]);
 
-    // Sort (in-place) as largest images descending
-    elements.sort((a, b) => {
-      const aRecord = indexedNetworkRecords[a.src] || {};
-      const bRecord = indexedNetworkRecords[b.src] || {};
-      return bRecord.resourceSize - aRecord.resourceSize;
-    });
+    // Spend our extra details budget on highest impact images.
+    // Our best approximation of impact without network records is to use pixel area.
+    elements.sort((a, b) => getPixelArea(b) - getPixelArea(a));
 
-    // Don't do more than 5s of this expensive devtools protocol work. See #11289
-    let reachedGatheringBudget = false;
-    setTimeout(_ => (reachedGatheringBudget = true), 5000);
-    let skippedCount = 0;
-
-    for (const element of elements) {
-      // Pull some of our information directly off the network record.
-      const networkRecord = indexedNetworkRecords[element.src] || {};
-      element.mimeType = networkRecord.mimeType;
-
-      if (reachedGatheringBudget) {
-        skippedCount++;
-        continue;
-      }
-
-      // Need source rules to determine if sized via CSS (for unsized-images).
-      if (!element.isInShadowDOM && !element.isCss) {
-        await this.fetchSourceRules(driver, element.node.devtoolsNodePath, element);
-      }
-      // Images within `picture` behave strangely and natural size information isn't accurate,
-      // CSS images have no natural size information at all. Try to get the actual size if we can.
-      // Additional fetch is expensive; don't bother if we don't have a networkRecord for the image.
-      if ((element.isPicture || element.isCss || element.srcset) && networkRecord) {
-        await this.fetchElementWithSizeInformation(driver, element);
-      }
-    }
-
-    if (reachedGatheringBudget) {
-      log.warn('ImageElements', `Reached gathering budget of 5s. Skipped extra details for ${skippedCount}/${elements.length}`); // eslint-disable-line max-len
-    }
+    await this.collectExtraDetails(context.driver, elements);
 
     await Promise.all([
-      driver.sendCommand('DOM.disable'),
-      driver.sendCommand('CSS.disable'),
+      session.sendCommand('DOM.disable'),
+      session.sendCommand('CSS.disable'),
     ]);
 
     return elements;

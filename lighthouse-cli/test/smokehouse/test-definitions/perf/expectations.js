@@ -26,9 +26,6 @@ module.exports = [
         'first-meaningful-paint': {
           score: '>=0.90', // primarily just making sure it didn't fail/go crazy, specific value isn't that important
         },
-        'first-cpu-idle': {
-          score: '>=0.90', // primarily just making sure it didn't fail/go crazy, specific value isn't that important
-        },
         'interactive': {
           score: '>=0.90', // primarily just making sure it didn't fail/go crazy, specific value isn't that important
         },
@@ -44,17 +41,19 @@ module.exports = [
           },
         },
         'uses-rel-preload': {
-          score: '<1',
-          numericValue: '>500',
-          warnings: {
-            0: /level-2.*warning/,
-            length: 1,
-          },
-          details: {
-            items: {
-              length: 1,
-            },
-          },
+          scoreDisplayMode: 'notApplicable',
+          // Disabled for now, see https://github.com/GoogleChrome/lighthouse/issues/11960
+          // score: '<1',
+          // numericValue: '>500',
+          // warnings: {
+          //   0: /level-2.*warning/,
+          //   length: 1,
+          // },
+          // details: {
+          //   items: {
+          //     length: 1,
+          //   },
+          // },
         },
         'uses-rel-preconnect': {
           score: 1,
@@ -83,7 +82,7 @@ module.exports = [
               {resourceType: 'font', requestCount: 2, transferSize: '81000±1000'},
               {resourceType: 'script', requestCount: 3, transferSize: '55000±1000'},
               {resourceType: 'image', requestCount: 2, transferSize: '28000±1000'},
-              {resourceType: 'document', requestCount: 1, transferSize: '2200±100'},
+              {resourceType: 'document', requestCount: 1, transferSize: '2200±150'},
               {resourceType: 'other', requestCount: 1, transferSize: '1030±100'},
               {resourceType: 'stylesheet', requestCount: 1, transferSize: '450±100'},
               {resourceType: 'media', requestCount: 0, transferSize: 0},
@@ -166,14 +165,16 @@ module.exports = [
           },
         },
         'preload-fonts': {
-          score: 0,
-          details: {
-            items: [
-              {
-                url: 'http://localhost:10200/perf/lobster-two-v10-latin-700.woff2?delay=1000',
-              },
-            ],
-          },
+          scoreDisplayMode: 'notApplicable',
+          // Disabled for now, see https://github.com/GoogleChrome/lighthouse/issues/11960
+          // score: 0,
+          // details: {
+          //   items: [
+          //     {
+          //       url: 'http://localhost:10200/perf/lobster-two-v10-latin-700.woff2?delay=1000',
+          //     },
+          //   ],
+          // },
         },
       },
     },
@@ -187,7 +188,7 @@ module.exports = [
         {
           traceEventType: 'largest-contentful-paint',
           node: {
-            nodeLabel: 'img',
+            nodeLabel: 'section > img',
             snippet: '<img src="../dobetterweb/lighthouse-480x318.jpg">',
             boundingRect: {
               top: 108,
@@ -273,7 +274,7 @@ module.exports = [
               {
                 node: {
                   type: 'node',
-                  nodeLabel: 'img',
+                  nodeLabel: 'section > img',
                   path: '0,HTML,1,BODY,1,DIV,a,#document-fragment,0,SECTION,0,IMG',
                 },
               },
@@ -328,13 +329,9 @@ module.exports = [
                 firstContentfulPaintAllFrames: '<5000',
                 largestContentfulPaint: '>5000',
                 largestContentfulPaintAllFrames: '<5000',
-                cumulativeLayoutShift: '0.001 +/- 0.0005',
-                cumulativeLayoutShiftAllFrames: '0.197 +/- 0.001',
-                layoutShiftAvgSessionGap5s: '>0',
-                layoutShiftMaxSessionGap1s: '>0',
-                layoutShiftMaxSessionGap1sLimit5s: '>0',
-                layoutShiftMaxSliding1s: '>0',
-                layoutShiftMaxSliding300ms: '>0',
+                cumulativeLayoutShift: '0.197 +/- 0.001',
+                cumulativeLayoutShiftMainFrame: '0.001 +/- 0.0005',
+                totalCumulativeLayoutShift: '0.001 +/- 0.0005',
               },
               {
                 lcpInvalidated: false,

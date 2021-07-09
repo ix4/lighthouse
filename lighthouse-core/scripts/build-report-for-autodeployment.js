@@ -10,15 +10,14 @@
 /* eslint-disable no-console */
 const fs = require('fs');
 const path = require('path');
-const rimraf = require('rimraf').sync;
 const swapLocale = require('../lib/i18n/swap-locale.js');
-
-const ReportGenerator = require('../../lighthouse-core/report/report-generator.js');
+const ReportGenerator = require('../../report/report-generator.js');
 const {defaultSettings} = require('../config/constants.js');
 const lighthouse = require('../index.js');
 const lhr = /** @type {LH.Result} */ (require('../../lighthouse-core/test/results/sample_v2.json'));
+const {LH_ROOT} = require('../../root.js');
 
-const DIST = path.join(__dirname, `../../dist/now`);
+const DIST = path.join(LH_ROOT, `dist/now`);
 
 (async function() {
   addPluginCategory(lhr);
@@ -125,6 +124,6 @@ async function generateErrorLHR() {
   appleTouchIconAudit.scoreDisplayMode = 'binary';
   appleTouchIconAudit.score = 1;
 
-  rimraf(TMP);
+  fs.rmdirSync(TMP, {recursive: true});
   return errorLhr;
 }
